@@ -67,6 +67,32 @@ def test_watch_creates_missing_folder(tmp_path: Path):
     assert inbox.is_dir()
 
 
+def test_watch_move_processed(tmp_path: Path):
+    inbox = tmp_path / "inbox"
+    processed = tmp_path / "processed"
+    inbox.mkdir()
+    src = inbox / "mail-1.eml"
+    src.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    args = _build_parser().parse_args(
+        [
+            "watch",
+            "--path",
+            str(inbox),
+            "--interval",
+            "0",
+            "--move-processed",
+            str(processed),
+        ]
+    )
+    out = io.StringIO()
+    rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=3)
+    assert rc == 0
+    assert not src.exists()
+    assert (processed / "mail-1.eml").exists()
+    assert processed.is_dir()
+
+
 def test_main_requires_command():
     try:
         main([])

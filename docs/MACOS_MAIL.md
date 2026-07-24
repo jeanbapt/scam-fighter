@@ -60,6 +60,9 @@ the file to finish writing before reading). No extra dependencies; Ctrl-C to sto
 uv run python -m scamfighter_app watch                 # watches ~/ScamFighter/inbox
 uv run python -m scamfighter_app watch --summarize     # + local LLM summaries
 uv run python -m scamfighter_app watch --path ~/scam-inbox --interval 1
+# After analysis, relocate files so restarts don't re-scan them:
+uv run python -m scamfighter_app watch --move-processed              # -> ~/ScamFighter/processed
+uv run python -m scamfighter_app watch --move-processed ~/archive
 ```
 
 ### On-demand alternative (export what you selected)
