@@ -1,0 +1,85 @@
+Return-Path: <victim@example.com>
+Delivered-To: victim@example.com
+Received: from localhost (HELO queue) (127.0.0.1)
+	by localhost with SMTP; 24 Jul 2026 09:21:13 +0200
+Received: from unknown (HELO output45.mail.ovh.net) (192.168.13.40)
+  by 192.168.9.19 with AES256-GCM-SHA384 encrypted SMTP; 24 Jul 2026 09:21:13 +0200
+Received: from vr1.mail.ovh.net (unknown [10.101.8.1])
+	by out45.mail.ovh.net (Postfix) with ESMTP id 4h5ztd5rFLzTgLw
+	for <victim@example.com>; Fri, 24 Jul 2026 07:21:13 +0000 (UTC)
+Received: from in90.mail.ovh.net (unknown [10.101.4.90])
+	by vr1.mail.ovh.net (Postfix) with ESMTP id 4h5ztd57gSz6sl1N
+	for <victim@example.com>; Fri, 24 Jul 2026 07:21:13 +0000 (UTC)
+Received: from [213.230.87.82] (unknown [213.230.87.82])
+	by in90.mail.ovh.net (Postfix) with SMTP id 4h5ztb32cSzFpWX
+	for <victim@example.com>; Fri, 24 Jul 2026 07:21:11 +0000 (UTC)
+X-Disposition-Quarantine: Quarantined due to DMARC policy
+Authentication-Results: mx.mail.ovh.net;
+    arc=none (no signatures found);
+    dkim=none (no signatures found);
+    dmarc=fail policy.published-domain-policy=quarantine policy.applied-disposition=quarantine policy.policy-from=p header.from=example.com;
+    spf=softfail smtp.mailfrom=victim@example.com smtp.helo=[213.230.87.82]
+Received-SPF: softfail
+    (example.com: Sender is not authorized by default to use 'victim@example.com' in 'mfrom' identity)
+    receiver=in90.mail.ovh.net;
+    identity=mailfrom;
+    envelope-from="victim@example.com";
+    helo="[213.230.87.82]";
+    client-ip=213.230.87.82
+Received: from tmsnqwb ([175.154.186.138]) by 04538.com with MailEnable ESMTP; Fri, 24 Jul 2026 12:21:11 +0500
+Received: (qmail 11884 invoked by uid 118); 24 Jul 2026 12:21:09 +0500
+From: victim@example.com
+To: victim@example.com
+Subject: [SPAM] I RECORDED YOU!
+Date: Fri, 24 Jul 2026 12:21:11 +0500
+Message-ID: <118849.118849@04538.com>
+Mime-Version: 1.0
+Content-type: text/plain;
+X-OVH-Remote: 213.230.87.82 ([213.230.87.82])
+X-VR-SPAMSTATE: PHISHING
+X-VR-SPAMSCORE: 645
+X-VR-SPAMCAUSE: REDACTED-BASE64-SPAMCAUSE-BLOB
+X-Ovh-Spam-Status: SPAM
+X-Ovh-Spam-Reason: vr: PHISHING; dkim: disabled; spf: disabled
+X-Ovh-Message-Type: PHISHING
+X-Spam-Tag: YES
+
+Hi!
+
+Unfortunately, there is some bad news for you.
+
+Some time ago, your device was infected with my private Trojan, R.A.T. (Remote Administration Tool).
+
+If you want to find out more about it, simply use Google.
+
+My Trojan allowed me to access your files, accounts, and your camera.
+
+Check the sender of this email; I have sent it from your email account.
+
+I RECORDED YOU (through your camera) MASTURBATING!
+
+If you still doubt my serious intentions, it only takes a couple of mouse clicks to share the video with your family, friends, relatives, all email contacts, on social networks and the darknet.
+
+After that, I removed my malware to leave no traces.
+
+To ensure you read this email, you will receive it multiple times.
+
+All you need is $1400 USD in Bitcoin (BTC), transferred to my wallet address.
+
+After the transaction is successful, I will proceed to delete everything.
+
+You can purchase Bitcoin (BTC) from reputable exchanges here:
+
+http://www.coinbase.com
+http://www.binance.com
+http://www.bitrefill.com
+http://www.crypto.com
+http://www.etoro.com
+
+Once purchased, you can send the Bitcoin (BTC) directly to my wallet address.
+
+My Bitcoin (BTC) wallet address is: 1NBwsBzgJTX7KTAd8gZe53pLP73wtSEXDS
+
+Yes, that's how the wallet address looks. Copy and paste my wallet address; it's case-sensitive.
+
+A piece of advice from me: regularly change all your passwords and update your device with the latest security patches.

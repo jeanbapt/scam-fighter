@@ -49,6 +49,39 @@ Provider router: edge LLM (default) -> Ollama local (fallback) -> Ollama Cloud
 (opt-in per case, `OLLAMA_API_KEY`). No model-authored code execution; tool-calls
 use fixed typed schemas only. The experimental pythonic tool-call adapter is out.
 
+Candidate edge models (all on-device, permissive-until-scale license): LiquidAI
+LFM2.5-350M / 1.2B for reasoning; LFM2.5-Embedding-350M or ColBERT-350M for
+similarity clustering; small Qwen/Gemma/Phi as alternates via Ollama.
+
+### PII out-filter for cloud escalation
+
+Cloud escalation must never leak PII (see `docs/LEGAL.md`: no silent cloud
+offload). Before any content leaves the device, it passes through a **PII
+out-filter** that redacts personal data, and it **fails closed** — if redaction
+cannot be confirmed, the content is not sent.
+
+Design it as a pluggable `PiiFilter` boundary (same pattern as `Governance`), with
+two layers:
+
+1. **Deterministic redaction first** (100% reliable for structured PII): emails,
+   phone numbers, IPs, crypto addresses, URLs — we already extract these in
+   `scamfighter_core.email_ingest`.
+2. **Model redaction second** for free-text PII (names, addresses).
+
+What LiquidAI proposes today (edge-native, on-brand for this project):
+
+| Option | Status | Fit as out-filter |
+|--------|--------|-------------------|
+| **ShieldFlow (LFM PII)** | Access-gated ("Request access"), commercial | Their purpose-built PII guard; closest match, but gating conflicts with an open repo — evaluate only if the gate is acceptable |
+| **LFM2-350M-PII-Extract-JP** | Open weights (HF + GGUF), 350M | **Japanese only** today — not usable for English/multilingual sextortion mail |
+| **LFM2-350M/1.2B-Extract** | Deprecated | Superseded by VL-Extract; general extraction, not a redactor |
+
+Because LiquidAI's open PII model is JP-only and ShieldFlow is gated, the Phase 1
+default is: **deterministic redaction + an open-weight English PII model**
+(e.g. OpenAI Privacy Filter open weights, or Presidio) behind the `PiiFilter`
+interface, with ShieldFlow / a future open LFM2 English PII model as swappable
+adapters. Monitor LiquidAI for an open, non-JP PII release.
+
 ## Workstreams
 
 ### WS0 - Repository & engineering baseline (week 0)
