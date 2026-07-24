@@ -40,6 +40,10 @@ reports. It must be hardened as both a **malware-handling tool** and a
 ### Least-privilege mail access
 - Default to `--source folder`: the operator exports only suspect messages, so the
   tool sees nothing else on disk and needs no macOS permission.
+- Recommended Apple Mail on-ramp is a **Mail rule -> AppleScript** that exports
+  matched messages into the watch folder. It runs inside Mail, so it needs neither
+  Full Disk Access nor an Automation prompt, and only ever touches rule-matched
+  mail (`tools/macos/scamfighter-mail-rule.applescript`).
 - macOS **Full Disk Access is coarse** — TCC grants it to the responsible app (the
   terminal/IDE), exposing all protected data to any code that app runs, including
   dependencies. Treat FDA-to-terminal as a supply-chain amplifier; if the raw
