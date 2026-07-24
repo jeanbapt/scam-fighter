@@ -24,6 +24,9 @@ jobs:
       - name: Format check
         run: uv run --with ruff ruff format --check .
       - name: Typecheck
-        run: uv run --with mypy mypy packages/scamfighter_core/scamfighter_core
+        run: >-
+          uv run --with mypy mypy
+          packages/scamfighter_core/scamfighter_core
+          apps/scamfighter/scamfighter_app
       - name: Tests
         run: uv run --with pytest pytest -q
