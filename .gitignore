@@ -55,6 +55,7 @@ proxy_env.sh
 *.sqlite3
 /evidence/
 /vault/
+/packs/
 /logs/
 *.log
 /tmp/

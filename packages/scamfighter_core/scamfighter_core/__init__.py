@@ -54,6 +54,7 @@ from scamfighter_core.mail_source import (
     parse_emlx,
     read_message_file,
 )
+from scamfighter_core.pack import EvidencePack, build_pack
 from scamfighter_core.pipeline import (
     Analysis,
     analyze,
@@ -66,6 +67,12 @@ from scamfighter_core.shieldflow import (
     is_active,
     load_config,
     requests_transport,
+)
+from scamfighter_core.vault import (
+    EvidenceVault,
+    VaultConflict,
+    VaultError,
+    VaultObject,
 )
 
 __all__ = [
@@ -81,6 +88,8 @@ __all__ = [
     "DeterministicRedactor",
     "EgressBlocked",
     "EgressGuard",
+    "EvidencePack",
+    "EvidenceVault",
     "FolderSource",
     "Governance",
     "GovernanceError",
@@ -102,7 +111,11 @@ __all__ = [
     "ShieldFlowGuard",
     "Transition",
     "UnauthorizedTransition",
+    "VaultConflict",
+    "VaultError",
+    "VaultObject",
     "analyze",
+    "build_pack",
     "defang",
     "default_mac_mail_root",
     "egress_audit_record",

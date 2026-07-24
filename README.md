@@ -77,17 +77,22 @@ uv run python -m scamfighter_app ingest --source folder
 # Or leave a hands-off watcher running that analyzes new drops in real time:
 uv run python -m scamfighter_app watch --move-processed
 
+# Build a write-once vault object + FR/EN complaint pack (see docs/FILING.md):
+uv run python -m scamfighter_app pack --path ~/ScamFighter/processed
+
 # Or read Apple Mail's on-disk store directly (advanced; needs Full Disk Access)
 uv run python -m scamfighter_app ingest --source macmail --limit 50
 ```
 
 See [docs/MACOS_MAIL.md](docs/MACOS_MAIL.md) for running on top of macOS Mail.
+See [docs/FILING.md](docs/FILING.md) for OVH abuse + French THESEE / police filing.
 
 ## Documentation
 
 - [PRD](PRD.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [Running on macOS Mail](docs/MACOS_MAIL.md)
+- [Filing to OVH + French authorities](docs/FILING.md)
 - [Governance model](docs/GOVERNANCE.md)
 - [Legal basis and boundaries](docs/LEGAL.md)
 - [Threat model](docs/THREAT_MODEL.md)
