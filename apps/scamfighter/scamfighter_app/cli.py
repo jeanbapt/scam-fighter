@@ -25,6 +25,7 @@ from scamfighter_core import (
     Analysis,
     CompositeEgressGuard,
     DeterministicRedactor,
+    FolderSource,
     ImapSource,
     MacMailSource,
     MailSource,
@@ -42,6 +43,10 @@ from scamfighter_core import (
 
 
 def build_source(args: argparse.Namespace) -> MailSource:
+    if args.source == "folder":
+        if not args.path:
+            raise SystemExit("--source folder requires --path <dir>")
+        return FolderSource(Path(os.path.expanduser(args.path)))
     if args.source == "macmail":
         root = Path(os.path.expanduser(args.path)) if args.path else None
         return MacMailSource(root=root)
@@ -125,8 +130,16 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     ingest = sub.add_parser("ingest", help="ingest and analyze mail (observe-only)")
-    ingest.add_argument("--source", choices=["macmail", "imap"], default="macmail")
-    ingest.add_argument("--path", help="mailbox root (macmail) e.g. ~/Library/Mail/V10")
+    ingest.add_argument(
+        "--source",
+        choices=["folder", "macmail", "imap"],
+        default="folder",
+        help="folder (least privilege, default), macmail (needs Full Disk Access), or imap",
+    )
+    ingest.add_argument(
+        "--path",
+        help="folder of .eml/.emlx (folder), or mailbox root e.g. ~/Library/Mail/V10 (macmail)",
+    )
     ingest.add_argument("--limit", type=int, default=50)
     ingest.add_argument("--all", action="store_true", help="show non-scam messages too")
     ingest.add_argument("--summarize", action="store_true", help="draft LLM summaries")

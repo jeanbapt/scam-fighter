@@ -1,14 +1,20 @@
 """Mail sources: where raw messages come from.
 
-Phase 1 supports two local-first sources, both read-only:
+Phase 1 sources, all read-only, ordered by least privilege (see
+``docs/MACOS_MAIL.md``):
 
-* :class:`MacMailSource` — reads Apple Mail's on-disk ``.emlx`` store directly. No
-  account credentials needed, but the process needs macOS **Full Disk Access** to
-  read ``~/Library/Mail`` (see ``docs/MACOS_MAIL.md``).
-* :class:`ImapSource` — connects to an IMAP account (e.g. OVH) read-only.
+* :class:`FolderSource` — reads ``.eml``/``.emlx`` files from a directory you
+  control (a drop/watch folder). **No special permission**: you export only the
+  suspect messages. Recommended default.
+* :class:`ImapSource` — connects to an IMAP account read-only. Scoped to one
+  mailbox over the network; no disk permissions.
+* :class:`MacMailSource` — reads Apple Mail's on-disk ``.emlx`` store directly.
+  Highest fidelity, but the process needs macOS **Full Disk Access**, which is
+  coarse (app-scoped, not folder-scoped). Prefer a dedicated signed helper over
+  granting FDA to your daily terminal/IDE.
 
-Both yield :class:`~scamfighter_core.email_ingest.ParsedEmail`. Neither fetches
-URLs or opens attachments.
+All yield :class:`~scamfighter_core.email_ingest.ParsedEmail`. None fetch URLs or
+open attachments.
 """
 
 from __future__ import annotations
@@ -48,6 +54,48 @@ def parse_emlx(raw: bytes) -> str:
         return raw.decode("utf-8", errors="replace")
     message = raw[newline + 1 : newline + 1 + count]
     return message.decode("utf-8", errors="replace")
+
+
+def _read_message_file(path: Path) -> str:
+    """Read a ``.eml`` (raw RFC 822) or ``.emlx`` (Apple-framed) message file."""
+    raw = path.read_bytes()
+    if path.suffix.lower() == ".emlx":
+        return parse_emlx(raw)
+    return raw.decode("utf-8", errors="replace")
+
+
+class FolderSource:
+    """Read ``.eml``/``.emlx`` files from a directory you control (least privilege).
+
+    You decide what lands in the folder (drag from Mail, a Mail rule, an export),
+    so no macOS Full Disk Access or account credentials are needed.
+    """
+
+    def __init__(self, path: Path, *, recursive: bool = True) -> None:
+        if not path.exists():
+            raise FileNotFoundError(f"folder not found: {path}")
+        self.path = path
+        self._glob = path.rglob if recursive else path.glob
+
+    def iter_message_paths(self) -> Iterator[Path]:
+        seen: set[Path] = set()
+        for pattern in ("*.eml", "*.emlx"):
+            for p in self._glob(pattern):
+                if p.is_file() and p not in seen:
+                    seen.add(p)
+        yield from sorted(seen)
+
+    def iter_parsed(self, *, limit: int | None = None) -> Iterator[ParsedEmail]:
+        count = 0
+        for path in self.iter_message_paths():
+            if limit is not None and count >= limit:
+                return
+            try:
+                message = _read_message_file(path)
+            except OSError:
+                continue
+            yield parse_eml(message)
+            count += 1
 
 
 def default_mac_mail_root() -> Path | None:
