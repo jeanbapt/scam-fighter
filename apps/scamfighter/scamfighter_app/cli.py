@@ -36,6 +36,7 @@ from scamfighter_core import (
     Analysis,
     CompositeEgressGuard,
     DeterministicRedactor,
+    EvidenceVault,
     FolderSource,
     ImapSource,
     MacMailSource,
@@ -47,6 +48,7 @@ from scamfighter_core import (
     ShieldFlowConfig,
     ShieldFlowGuard,
     analyze,
+    build_pack,
     defang,
     load_config,
     parse_eml_bytes,
@@ -56,6 +58,8 @@ from scamfighter_core import (
 
 DEFAULT_WATCH_FOLDER = Path.home() / "ScamFighter" / "inbox"
 DEFAULT_PROCESSED_FOLDER = Path.home() / "ScamFighter" / "processed"
+DEFAULT_VAULT = Path.home() / "ScamFighter" / "evidence"
+DEFAULT_PACKS = Path.home() / "ScamFighter" / "packs"
 
 
 def build_source(args: argparse.Namespace) -> MailSource:
@@ -356,7 +360,73 @@ def _build_parser() -> argparse.ArgumentParser:
         f"(default DIR: {DEFAULT_PROCESSED_FOLDER})",
     )
     watch.set_defaults(func=run_watch)
+
+    pack = sub.add_parser(
+        "pack",
+        help="store .eml in the write-once vault and build a FR/EN complaint pack",
+    )
+    pack.add_argument(
+        "--path",
+        required=True,
+        help="a .eml/.emlx file, or a folder of them (e.g. ~/ScamFighter/processed)",
+    )
+    pack.add_argument(
+        "--vault",
+        default=str(DEFAULT_VAULT),
+        help=f"evidence vault root (default {DEFAULT_VAULT})",
+    )
+    pack.add_argument(
+        "--packs",
+        default=str(DEFAULT_PACKS),
+        help=f"where to write complaint packs (default {DEFAULT_PACKS})",
+    )
+    pack.set_defaults(func=run_pack)
     return parser
+
+
+def run_pack(args: argparse.Namespace, *, out: TextIO = sys.stdout) -> int:
+    """Vault + bilingual complaint pack for one file or a folder of .eml/.emlx."""
+    target = Path(os.path.expanduser(args.path))
+    vault = EvidenceVault(Path(os.path.expanduser(args.vault)))
+    packs_root = Path(os.path.expanduser(args.packs))
+    packs_root.mkdir(parents=True, exist_ok=True)
+
+    if target.is_file():
+        paths = [target]
+    elif target.is_dir():
+        paths = sorted(
+            {
+                *target.glob("*.eml"),
+                *target.glob("*.emlx"),
+                *target.glob("**/*.eml"),
+                *target.glob("**/*.emlx"),
+            }
+        )
+        paths = [p for p in paths if p.is_file() and not p.is_symlink()]
+    else:
+        raise SystemExit(f"path not found: {target}")
+
+    if not paths:
+        print(f"No .eml/.emlx under {target}", file=out)
+        return 1
+
+    built = 0
+    for path in paths:
+        try:
+            pack_obj = build_pack(path, vault=vault, packs_root=packs_root)
+        except Exception as exc:
+            print(f"[error] {path.name}: {exc}", file=out)
+            continue
+        built += 1
+        print(
+            f"[pack] {pack_obj.analysis.verdict} "
+            f"sha256={pack_obj.sha256[:16]}… -> {pack_obj.directory}",
+            file=out,
+        )
+        print(f"        FR: {pack_obj.directory / 'complaint_fr.md'}", file=out)
+        print(f"        EN: {pack_obj.directory / 'complaint_en.md'}", file=out)
+    print(f"\nBuilt {built} pack(s). Filing guide: docs/FILING.md", file=out)
+    return 0 if built else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:

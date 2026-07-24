@@ -130,8 +130,11 @@ Microsoft Presidio.
       approval decision, action proposal
 - [ ] Strict YAML schemas under `schemas/` with fail-closed loaders
 - [ ] SQLite schema: messages, campaigns, evidence_refs, plans, approvals, audit
-- [ ] Filesystem evidence vault: write-once, SHA-256, path layout, retention metadata
+- [x] Filesystem evidence vault: write-once, SHA-256, path layout
+      (`scamfighter_core.vault` + CLI `pack`)
+- [x] FR/EN complaint pack drafts + filing doc (`docs/FILING.md`, OVH + THESEE)
 - [ ] Settings from env; `SCAMFIGHTER_MODE=observe|approve|act`
+- [ ] Pydantic models for full case/campaign graph; SQLite durability
 
 **Exit:** persist a synthetic message + evidence blob and reload typed models.
 
