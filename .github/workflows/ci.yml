@@ -5,17 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege by default; jobs opt into more if they ever need it.
+permissions:
+  contents: read
+
 jobs:
   lint-test:
     runs-on: ubuntu-latest
     steps:
+      # Action versions are kept updated by Dependabot; pin to SHAs before the
+      # first public release for OpenSSF Scorecard compliance.
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-      - name: Sync
-        run: uv sync --extra dev
-      - name: Ruff
-        run: uv run ruff check .
+      - name: Lint
+        run: uv run --with ruff ruff check .
+      - name: Format check
+        run: uv run --with ruff ruff format --check .
+      - name: Typecheck
+        run: uv run --with mypy mypy packages/scamfighter_core/scamfighter_core
       - name: Tests
-        run: uv run pytest -q
+        run: uv run --with pytest pytest -q

@@ -35,6 +35,13 @@ cover/
 credentials.json
 secrets/
 
+# Real mail samples / captured evidence must NEVER be committed (PII + live
+# attacker content). Sanitized, defanged fixtures may live under tests/fixtures/.
+*.eml
+*.msg
+/samples/
+!tests/fixtures/**/*.eml
+
 # Local runtime data (vault lives at repo root ./evidence, not mcp_servers/evidence)
 /data/
 *.db
