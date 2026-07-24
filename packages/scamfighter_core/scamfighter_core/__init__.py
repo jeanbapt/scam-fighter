@@ -5,6 +5,13 @@ SGRS (or any other engine) can be added later as an adapter behind
 :class:`Governance` without touching agents or MCP servers.
 """
 
+from scamfighter_core.email_ingest import (
+    AuthResults,
+    Indicators,
+    ParsedEmail,
+    defang,
+    parse_eml,
+)
 from scamfighter_core.governance import (
     ApprovalDecision,
     AuditEvent,
@@ -19,10 +26,15 @@ from scamfighter_core.governance import (
 __all__ = [
     "ApprovalDecision",
     "AuditEvent",
+    "AuthResults",
     "CaseState",
     "Governance",
     "GovernanceError",
+    "Indicators",
     "LocalGovernance",
+    "ParsedEmail",
     "Transition",
     "UnauthorizedTransition",
+    "defang",
+    "parse_eml",
 ]
