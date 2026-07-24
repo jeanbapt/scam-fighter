@@ -47,7 +47,7 @@ from scamfighter_core import (
     analyze,
     defang,
     load_config,
-    parse_eml,
+    parse_eml_bytes,
     read_message_file,
     summarize,
 )
@@ -131,15 +131,22 @@ def _report(
     out,
     prefix: str = "",
 ) -> bool:
-    """Analyze one message, print it if noteworthy, return whether it was sextortion."""
+    """Analyze one message, print it if noteworthy, return whether it was sextortion.
+
+    Any unexpected exception is caught by the caller; this helper itself only
+    fails on programming errors.
+    """
     analysis = analyze(parsed)
     if analysis.verdict != "unknown" or show_all:
         if prefix:
             print(prefix, file=out)
         print(_format(analysis), file=out)
         if router is not None and analysis.verdict != "unknown":
-            summary = summarize(parsed, router, escalate=escalate)
-            print(f"    summary: {summary}", file=out)
+            try:
+                summary = summarize(parsed, router, escalate=escalate)
+                print(f"    summary: {summary}", file=out)
+            except Exception as exc:  # noqa: BLE001 — never kill the loop for a summary
+                print(f"    summary: [failed: {exc}]", file=out)
     return analysis.is_sextortion
 
 
@@ -148,12 +155,17 @@ def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
     router = build_router(escalate=args.escalate) if args.summarize else None
 
     parsed_iter: Iterator[ParsedEmail] = source.iter_parsed(limit=args.limit)
-    total = scams = 0
+    total = scams = errors = 0
     for parsed in parsed_iter:
         total += 1
-        if _report(parsed, router=router, escalate=args.escalate, show_all=args.all, out=out):
-            scams += 1
-    print(f"\nProcessed {total} message(s); {scams} sextortion hit(s).", file=out)
+        try:
+            if _report(parsed, router=router, escalate=args.escalate, show_all=args.all, out=out):
+                scams += 1
+        except Exception as exc:  # noqa: BLE001 — poison message must not abort the batch
+            errors += 1
+            print(f"[error] skipped message: {exc}", file=out)
+    suffix = f" ({errors} error(s))." if errors else "."
+    print(f"\nProcessed {total} message(s); {scams} sextortion hit(s){suffix}", file=out)
     return 0
 
 
@@ -168,7 +180,8 @@ def run_watch(
 
     Dependency-free: polls every ``--interval`` seconds and waits for a file's size
     to stop changing before reading it, so partially written exports are skipped
-    until complete. Stop with Ctrl-C.
+    until complete. A single poison/oversized message is logged and skipped — it
+    never kills the watcher. Stop with Ctrl-C.
     """
     folder = Path(os.path.expanduser(args.path)) if args.path else DEFAULT_WATCH_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
@@ -179,7 +192,7 @@ def run_watch(
 
     processed: set[Path] = set()
     pending_size: dict[Path, int] = {}
-    total = scams = 0
+    total = scams = errors = 0
     iterations = 0
     try:
         while True:
@@ -194,20 +207,22 @@ def run_watch(
                     pending_size[path] = size  # not yet stable; check again next tick
                     continue
                 try:
-                    parsed = parse_eml(read_message_file(path))
-                except OSError:
-                    continue
-                total += 1
-                stamp = time.strftime("%H:%M:%S")
-                if _report(
-                    parsed,
-                    router=router,
-                    escalate=args.escalate,
-                    show_all=args.all,
-                    out=out,
-                    prefix=f"[{stamp}] {path.name}",
-                ):
-                    scams += 1
+                    parsed = parse_eml_bytes(read_message_file(path))
+                    total += 1
+                    stamp = time.strftime("%H:%M:%S")
+                    if _report(
+                        parsed,
+                        router=router,
+                        escalate=args.escalate,
+                        show_all=args.all,
+                        out=out,
+                        prefix=f"[{stamp}] {path.name}",
+                    ):
+                        scams += 1
+                except Exception as exc:  # noqa: BLE001 — poison must not kill the watcher
+                    errors += 1
+                    stamp = time.strftime("%H:%M:%S")
+                    print(f"[{stamp}] {path.name}: skipped ({exc})", file=out)
                 out.flush()
                 processed.add(path)
                 pending_size.pop(path, None)
@@ -217,7 +232,11 @@ def run_watch(
             _sleep(args.interval)
     except KeyboardInterrupt:
         print(file=out)
-    print(f"Watched {folder}: processed {total} message(s); {scams} sextortion hit(s).", file=out)
+    suffix = f" ({errors} error(s))." if errors else "."
+    print(
+        f"Watched {folder}: processed {total} message(s); {scams} sextortion hit(s){suffix}",
+        file=out,
+    )
     return 0
 
 

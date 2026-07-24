@@ -36,11 +36,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol, runtime_checkable
 
-_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-_URL_RE = re.compile(r"https?://[^\s<>\"')]+", re.IGNORECASE)
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}\b")
+_URL_RE = re.compile(r"https?://[^\s<>\"')\]]{1,2048}", re.IGNORECASE)
 _BTC_RE = re.compile(r"\b(?:bc1[ac-hj-np-z02-9]{11,71}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b")
-_IPV4_RE = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
-_PHONE_RE = re.compile(r"(?<!\w)\+\d[\d\s().-]{6,}\d(?!\w)")
+_IPV4_RE = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b"
+)
+# Bounded phone-like numbers; avoid nested quantifiers that invite ReDoS.
+_PHONE_RE = re.compile(r"(?<!\w)\+\d{1,3}(?:[\s().-]?\d){6,14}(?!\w)")
 
 # (label, pattern) applied in order; URLs before emails/IPs so nested matches don't
 # leave fragments behind.

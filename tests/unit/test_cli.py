@@ -43,6 +43,21 @@ def test_watch_processes_existing_drop(tmp_path: Path):
     assert "1 sextortion hit" in text
 
 
+def test_watch_survives_poison_message(tmp_path: Path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "poison.eml").write_bytes(b"\xff\xfe\x00not-a-valid-message")
+    (inbox / "good.eml").write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])
+    out = io.StringIO()
+    rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=4)
+    text = out.getvalue()
+    assert rc == 0
+    # Watcher keeps running and still reports the good message.
+    assert "[SCAM] sextortion" in text or "sextortion hit" in text
+
+
 def test_watch_creates_missing_folder(tmp_path: Path):
     inbox = tmp_path / "does-not-exist-yet"
     args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])

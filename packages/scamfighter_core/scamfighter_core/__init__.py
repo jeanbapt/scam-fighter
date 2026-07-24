@@ -21,7 +21,9 @@ from scamfighter_core.email_ingest import (
     Indicators,
     ParsedEmail,
     defang,
+    html_to_text,
     parse_eml,
+    parse_eml_bytes,
 )
 from scamfighter_core.governance import (
     ApprovalDecision,
@@ -40,10 +42,12 @@ from scamfighter_core.llm import (
     ProviderRouter,
 )
 from scamfighter_core.mail_source import (
+    MAX_MESSAGE_BYTES,
     FolderSource,
     ImapSource,
     MacMailSource,
     MailSource,
+    MessageTooLarge,
     default_mac_mail_root,
     parse_emlx,
     read_message_file,
@@ -63,6 +67,7 @@ from scamfighter_core.shieldflow import (
 )
 
 __all__ = [
+    "MAX_MESSAGE_BYTES",
     "Analysis",
     "ApprovalDecision",
     "AuditEvent",
@@ -83,6 +88,7 @@ __all__ = [
     "LocalGovernance",
     "MacMailSource",
     "MailSource",
+    "MessageTooLarge",
     "OllamaLocalProvider",
     "OpenAICompatibleProvider",
     "ParsedEmail",
@@ -97,10 +103,12 @@ __all__ = [
     "defang",
     "default_mac_mail_root",
     "guard_cloud_egress",
+    "html_to_text",
     "httpx_transport",
     "is_active",
     "load_config",
     "parse_eml",
+    "parse_eml_bytes",
     "parse_emlx",
     "read_message_file",
     "requests_transport",

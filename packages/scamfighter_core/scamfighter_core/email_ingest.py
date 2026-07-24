@@ -7,27 +7,36 @@ reading the authentication results and origin, and it pulls indicators (crypto
 addresses, URLs, IPs) that never need a model.
 
 Everything here treats input as hostile: we parse, we never fetch URLs or execute
-attachments.
+attachments. Prefer :func:`parse_eml_bytes` so charset headers are respected.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from email import message_from_string, policy
+from email import message_from_bytes, message_from_string, policy
 from email.message import EmailMessage
+from html.parser import HTMLParser
+
+# Cap how much body/Received text we scan for indicators (DoS / ReDoS bound).
+_INDICATOR_SCAN_BYTES = 256 * 1024
+_MAX_RECEIVED_HEADERS = 64
 
 # Indicators. Deterministic and auditable — no model involved.
+# Bounded quantifiers / character classes avoid catastrophic backtracking.
 _BTC_RE = re.compile(r"\b(?:bc1[ac-hj-np-z02-9]{11,71}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b")
-_URL_RE = re.compile(r"https?://[^\s<>\"')]+", re.IGNORECASE)
-_IPV4_RE = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
+_URL_RE = re.compile(r"https?://[^\s<>\"')\]]{1,2048}", re.IGNORECASE)
+_IPV4_RE = re.compile(
+    r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b"
+)
 
 # Authentication-Results verdicts.
 _SPF_RE = re.compile(r"\bspf=(\w+)", re.IGNORECASE)
 _DKIM_RE = re.compile(r"\bdkim=(\w+)", re.IGNORECASE)
 _DMARC_RE = re.compile(r"\bdmarc=(\w+)", re.IGNORECASE)
 
-# RFC 1918 / loopback ranges we treat as internal hops, not the true origin.
+# RFC 1918 / loopback / link-local — not the true origin. CGNAT handled in
+# :func:`_is_private_ip`.
 _PRIVATE_PREFIXES = ("10.", "127.", "192.168.", "169.254.")
 
 
@@ -73,6 +82,41 @@ class ParsedEmail:
     is_self_addressed: bool = field(default=False)
 
 
+class _HTMLTextExtractor(HTMLParser):
+    """Stdlib-only tag stripper: no rendering, no network, no JS."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._chunks: list[str] = []
+        self._skip = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style"}:
+            self._skip = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"}:
+            self._skip = False
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip and data.strip():
+            self._chunks.append(data)
+
+    def text(self) -> str:
+        return "\n".join(self._chunks)
+
+
+def html_to_text(html: str) -> str:
+    """Strip tags from HTML mail for indicator scanning (never fetch, never render)."""
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:  # noqa: BLE001 — hostile HTML must never crash ingestion
+        return re.sub(r"<[^>]+>", " ", html)
+    return parser.text()
+
+
 def _addr(value: str | None) -> str:
     if not value:
         return ""
@@ -81,10 +125,23 @@ def _addr(value: str | None) -> str:
     return (m.group(1) if m else value).strip().lower()
 
 
-def _public_ips(raw: str) -> tuple[str, ...]:
+def _is_private_ip(ip: str) -> bool:
+    if ip.startswith(_PRIVATE_PREFIXES):
+        return True
+    # CGNAT 100.64.0.0/10
+    if ip.startswith("100."):
+        try:
+            second = int(ip.split(".", 2)[1])
+        except (IndexError, ValueError):
+            return False
+        return 64 <= second <= 127
+    return False
+
+
+def _public_ips(text: str) -> tuple[str, ...]:
     seen: list[str] = []
-    for ip in _IPV4_RE.findall(raw):
-        if ip.startswith(_PRIVATE_PREFIXES):
+    for ip in _IPV4_RE.findall(text[:_INDICATOR_SCAN_BYTES]):
+        if _is_private_ip(ip):
             continue
         if ip not in seen:
             seen.append(ip)
@@ -93,16 +150,48 @@ def _public_ips(raw: str) -> tuple[str, ...]:
 
 def _dedupe(pattern: re.Pattern[str], text: str) -> tuple[str, ...]:
     seen: list[str] = []
-    for match in pattern.findall(text):
+    for match in pattern.findall(text[:_INDICATOR_SCAN_BYTES]):
         if match not in seen:
             seen.append(match)
     return tuple(seen)
 
 
-def parse_eml(raw: str) -> ParsedEmail:
-    """Parse a raw RFC 822 message into a typed :class:`ParsedEmail`."""
-    msg: EmailMessage = message_from_string(raw, policy=policy.default)  # type: ignore[assignment]
+def _extract_body(msg: EmailMessage) -> str:
+    """Prefer text/plain; fall back to stripped text/html. Never render or fetch."""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if ctype == "text/plain":
+                try:
+                    plain_parts.append(str(part.get_content()))
+                except Exception:  # noqa: BLE001,S112 — skip undecodable hostile parts
+                    continue
+            elif ctype == "text/html":
+                try:
+                    html_parts.append(str(part.get_content()))
+                except Exception:  # noqa: BLE001,S112 — skip undecodable hostile parts
+                    continue
+    else:
+        ctype = msg.get_content_type()
+        try:
+            content = str(msg.get_content()) if msg.get_content_maintype() == "text" else ""
+        except Exception:  # noqa: BLE001 — hostile MIME must not crash
+            content = ""
+        if ctype == "text/html":
+            html_parts.append(content)
+        elif content:
+            plain_parts.append(content)
 
+    if plain_parts:
+        return "\n".join(plain_parts)
+    if html_parts:
+        return html_to_text("\n".join(html_parts))
+    return ""
+
+
+def _from_message(msg: EmailMessage) -> ParsedEmail:
     headers = {k: str(v) for k, v in msg.items()}
     auth_raw = " ".join(v for k, v in msg.items() if k.lower() == "authentication-results")
 
@@ -116,19 +205,25 @@ def parse_eml(raw: str) -> ParsedEmail:
         dmarc=_verdict(_DMARC_RE),
     )
 
-    if msg.is_multipart():
-        parts = [p for p in msg.walk() if p.get_content_type() == "text/plain"]
-        body = "\n".join(p.get_content() for p in parts) if parts else ""
-    else:
-        body = msg.get_content() if msg.get_content_maintype() == "text" else ""
+    received_list: list[str] = []
+    for k, v in msg.items():
+        if k.lower() != "received":
+            continue
+        received_list.append(str(v))
+        if len(received_list) >= _MAX_RECEIVED_HEADERS:
+            break
+    received = tuple(received_list)
+    body = _extract_body(msg)
 
     from_addr = _addr(msg.get("From"))
     to_addr = _addr(msg.get("To"))
 
+    # Origin IPs come from the Received chain only — not the whole raw message
+    # (which would also pick up IPs quoted in the scam body).
     indicators = Indicators(
         bitcoin_addresses=_dedupe(_BTC_RE, body),
         urls=_dedupe(_URL_RE, body),
-        public_ips=_public_ips(raw),
+        public_ips=_public_ips("\n".join(received)),
     )
 
     return ParsedEmail(
@@ -138,12 +233,28 @@ def parse_eml(raw: str) -> ParsedEmail:
         date=str(msg.get("Date", "")),
         message_id=str(msg.get("Message-ID", "")),
         headers=headers,
-        received_chain=tuple(str(v) for k, v in msg.items() if k.lower() == "received"),
+        received_chain=received,
         auth=auth,
         body=body,
         indicators=indicators,
         is_self_addressed=bool(from_addr) and from_addr == to_addr,
     )
+
+
+def parse_eml_bytes(raw: bytes) -> ParsedEmail:
+    """Parse raw RFC 822 bytes, respecting charset headers (preferred entry point)."""
+    msg: EmailMessage = message_from_bytes(raw, policy=policy.default)  # type: ignore[assignment]
+    return _from_message(msg)
+
+
+def parse_eml(raw: str) -> ParsedEmail:
+    """Parse a raw RFC 822 message already decoded as text.
+
+    Prefer :func:`parse_eml_bytes` when you have the original bytes so non-UTF-8
+    charsets are preserved.
+    """
+    msg: EmailMessage = message_from_string(raw, policy=policy.default)  # type: ignore[assignment]
+    return _from_message(msg)
 
 
 def defang(indicator: str) -> str:
