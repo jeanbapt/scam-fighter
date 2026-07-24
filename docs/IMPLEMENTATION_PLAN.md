@@ -1,17 +1,21 @@
 # ScamFighter Implementation Plan
 
-Derived from [PRD v0.2](../PRD.md). Goal: ship a **local MVP** (Phase 1) that can ingest OVH IMAP mail, analyze campaigns, build immutable evidence, propose actions, and execute only through **SGRS-governed** MCP connectors — observe-only by default.
+Derived from [PRD v0.3](../PRD.md). Goal: ship a **local MVP** (Phase 1) that
+ingests OVH IMAP mail, analyzes campaigns, builds immutable evidence, proposes
+defensive actions, and executes only through a **governed** boundary with recorded
+approval — observe-only by default.
 
 ## Principles (non-negotiable)
 
 | Rule | Implication |
 |------|-------------|
-| Observe-only by default | Mail mutations and external reports require explicit approval + SGRS transition |
-| No hack-back | MCP tool surface is defensive only (read, quarantine/label, report, evidence) |
-| Never reimplement SGRS | Depend on public SGRS runtime/client; ScamFighter only supplies policies + payloads |
-| Typed everything | Strict YAML → Pydantic models; no untyped agent I/O |
-| Local-first | SQLite, filesystem vault, stdio MCP; cloud LLMs are escalation only |
-| Immutable evidence | Append-only vault; content-addressed artifacts; no in-place edits |
+| Observe-only by default | Mail mutations and outbound reports require approval + a governed transition |
+| No hack-back | MCP tool surface is defensive only (read, quarantine own mail, report, evidence) |
+| Governance is a boundary | Depend on the `Governance` Protocol; SGRS/others are optional adapters |
+| Typed everything | Strict YAML -> Pydantic models; no untyped agent I/O |
+| Edge-first models | Deterministic parsers > small models; cloud is opt-in escalation |
+| Local-first | SQLite, filesystem vault, stdio MCP; email content stays on-device |
+| Immutable evidence | Append-only vault; content-addressed; hash-chained audit |
 
 ## Target architecture
 
@@ -23,133 +27,150 @@ OVH IMAP
   -> Evidence Builder
   -> Planner
   -> Approval (human / policy gate)
-  -> SGRS Governance
+  -> Governance (validated transition + audit)
   -> MCP connectors
        mail-read | mail-actions | evidence | reporting | threat-intel
 ```
 
-**Runtime shape (Phase 1):** FastAPI orchestrator + PydanticAI agents + SGRS client + five stdio MCP servers + SQLite + `./evidence` vault.
+## Models
 
-**AI routing:** LiquidAI LFM2.5 local (default) → Ollama local/Qwen (fallback) → Ollama Cloud via `OLLAMA_API_KEY` (escalation). Experimental: LiquidAI pythonic tool-call adapter (AST-parsed, never `eval`).
+Reliability order: **deterministic parsers > small classifiers/embeddings > LLM
+reasoning.** Right-size each task:
 
----
+| Task | Right tool | Why |
+|------|-----------|-----|
+| IOC extraction (crypto addrs, URLs, emails, headers) | Regex / deterministic parsers | Zero hallucination, auditable, court-credible |
+| Auth checks (SPF/DKIM/DMARC, RDAP/WHOIS) | Library calls | Facts, not inference |
+| Scam-type classification | Small local classifier or edge LLM (LFM2, Qwen2.5-1.5B/3B, Gemma, Phi) | Cheap, private, sufficient |
+| Campaign clustering / similarity | Small local embedding model + cosine | Runs on a laptop |
+| Evidence summary / draft abuse report | Edge LLM; cloud escalation opt-in | Only place a bigger model marginally helps |
+
+Provider router: edge LLM (default) -> Ollama local (fallback) -> Ollama Cloud
+(opt-in per case, `OLLAMA_API_KEY`). No model-authored code execution; tool-calls
+use fixed typed schemas only. The experimental pythonic tool-call adapter is out.
 
 ## Workstreams
 
-### WS0 — Repository & engineering baseline (week 0)
+### WS0 - Repository & engineering baseline (week 0)
 
-- [x] Git repo, `.gitignore`, MIT license, `CODEOWNERS`, `.env.example`, layout scaffold
-- [ ] `uv` workspace: `apps/scamfighter`, `packages/scamfighter_core`, `mcp_servers/*`
-- [ ] Pin Python 3.13+, ruff, mypy, pytest
-- [ ] CI skeleton: lint + typecheck + unit tests
-- [ ] Security CI stubs (enable as code lands): dependency-review, OSV, pip-audit, CodeQL, Semgrep, SBOM, Sigstore provenance
-- [ ] Require signed commits on `main` (GitHub branch protection)
-- [ ] Document how to point at the public SGRS client package/repo
+- [x] Git repo, `.gitignore`, MIT license, `CODEOWNERS`, `.env.example`, layout
+- [x] `Governance` Protocol + `LocalGovernance` in `scamfighter_core` (+ tests)
+- [x] Governance / Legal / Threat-model / Security / Contributing / CoC docs
+- [x] CI: lint + typecheck + unit tests; Dependabot; least-privilege tokens
+- [ ] Enable security scanners as code lands: OSV, pip-audit, CodeQL, Semgrep,
+      OpenSSF Scorecard, SBOM, Sigstore provenance
+- [ ] Branch protection on `main`: signed commits, required reviews, required checks
+- [ ] Commit lockfile once resolvable in CI (`uv.lock`)
 
-**Exit:** `uv sync` + empty CI green; SGRS client importable as a dependency.
+**Exit:** clean checkout builds and tests green with no insider knowledge.
 
-### WS1 — Schemas, config, storage
+### WS1 - Schemas, config, storage
 
-- [ ] Pydantic models for: message, campaign, similarity hit, evidence package, plan, approval decision, action proposal
-- [ ] Strict YAML schemas under `schemas/` with loaders that fail closed
-- [ ] SQLite schema: messages, campaigns, evidence_refs, plans, approvals, audit_events
-- [ ] Filesystem evidence vault API: write-once, hash (SHA-256), path layout, retention metadata
-- [ ] Settings from env (see `.env.example`); `SCAMFIGHTER_MODE=observe|approve|act`
+- [ ] Pydantic models: message, campaign, similarity hit, evidence package, plan,
+      approval decision, action proposal
+- [ ] Strict YAML schemas under `schemas/` with fail-closed loaders
+- [ ] SQLite schema: messages, campaigns, evidence_refs, plans, approvals, audit
+- [ ] Filesystem evidence vault: write-once, SHA-256, path layout, retention metadata
+- [ ] Settings from env; `SCAMFIGHTER_MODE=observe|approve|act`
 
-**Exit:** Can persist a synthetic message + evidence blob and reload typed models.
+**Exit:** persist a synthetic message + evidence blob and reload typed models.
 
-### WS2 — MCP servers (capability isolation)
-
-Implement stdio MCP servers under `mcp_servers/`:
+### WS2 - MCP servers (capability isolation)
 
 | Server | Phase 1 scope |
 |--------|----------------|
 | `mail-read` | IMAP fetch/list/search (OVH); no mutations |
-| `mail-actions` | Label/move/quarantine only; gated; disabled in observe mode |
+| `mail-actions` | Label/move/quarantine own mail only; gated; disabled in observe mode |
 | `evidence` | Vault put/get/list; never overwrite |
-| `reporting` | Stub: emit local report artifact (external APIs in Phase 3) |
-| `threat-intel` | Stub: local lookups / placeholder providers |
+| `reporting` | Emit local ARF/X-ARF + STIX artifacts; external delivery in Phase 3 |
+| `threat-intel` | Public lookups / placeholders only |
 
 - [ ] Shared MCP packaging pattern (one entrypoint each)
-- [ ] Hard deny of tools not allowed by mode + SGRS
-- [ ] Integration tests with mocked IMAP / temp vault
+- [ ] Hard deny of tools not allowed by mode + governance
+- [ ] Integration tests with mocked IMAP / temp vault; treat all input as hostile
 
-**Exit:** Agents can call `mail-read` + `evidence` end-to-end locally; `mail-actions` refuse in observe mode.
+**Exit:** `mail-read` + `evidence` work end-to-end locally; `mail-actions` refuses
+in observe mode.
 
-### WS3 — SGRS integration
+### WS3 - Governance integration
 
-- [ ] Wire public SGRS client; load policies from `policies/`
-- [ ] Model state machine for case lifecycle (e.g. `ingested → analyzed → evidenced → planned → approved → executed → closed`)
-- [ ] Every transition produces an audit event in SQLite
-- [ ] Action proposals cannot reach MCP `mail-actions` / `reporting` without a valid SGRS transition + approval record
+- [x] `Governance` boundary defined and tested (`LocalGovernance`)
+- [ ] Load policies from `policies/`
+- [ ] Persist state + audit in SQLite (durable backend behind same interface)
+- [ ] Action proposals cannot reach `mail-actions` / `reporting` without a valid
+      transition + approval record
+- [ ] (Optional, later) `SgrsGovernance` adapter behind the same Protocol
 
-**Exit:** Unauthorized transition rejected; authorized path reaches MCP once.
+**Exit:** unauthorized transition rejected; authorized path reaches MCP once.
 
-### WS4 — Agent pipeline (PydanticAI v2)
+### WS4 - Agent pipeline (PydanticAI)
 
-Implement agents as typed steps (structured outputs only):
+Typed steps, structured outputs only:
 
-1. **Intake** — normalize IMAP message → `Message` model  
-2. **Campaign Analyzer** — cluster/classify abuse pattern → `Campaign`  
-3. **Similarity Hunter** — find related messages in SQLite vault → `SimilarityHit[]`  
-4. **Evidence Builder** — assemble package + write vault via MCP → `EvidencePackage`  
-5. **Planner** — propose defensive actions → `Plan` (observe annotations if mode=observe)  
-6. **Approval** — human or policy gate → `ApprovalDecision`  
+1. **Intake** - normalize IMAP message -> `Message`
+2. **Campaign Analyzer** - classify + SPF/DKIM/DMARC -> `Campaign`
+3. **Similarity Hunter** - related messages -> `SimilarityHit[]`
+4. **Evidence Builder** - assemble + write vault via MCP -> `EvidencePackage`
+5. **Planner** - propose defensive actions -> `Plan` (observe annotations in observe mode)
+6. **Approval** - human/policy gate -> `ApprovalDecision`
 
-- [ ] Provider router: LiquidAI → Ollama local → Ollama Cloud
-- [ ] Optional experimental LiquidAI pythonic tool-call path behind a feature flag
+- [ ] Provider router (edge -> Ollama local -> opt-in cloud)
 - [ ] FastAPI routes: health, ingest trigger, case status, approve plan
 
-**Exit:** One real or fixture mailbox path produces a plan + evidence without mutating mail.
+**Exit:** one mailbox path (fixture or real) produces a plan + evidence without
+mutating mail.
 
-### WS5 — Local MVP vertical slice (Phase 1 done)
+### WS5 - Local MVP vertical slice (Phase 1 done)
 
-- [ ] CLI or API: `ingest` → full pipeline → plan awaiting approval  
-- [ ] Manual approval → SGRS → (still observe: log intended actions only)  
-- [ ] Toggle `approve`/`act` for quarantining a labeled test folder only  
-- [ ] README quickstart: OVH IMAP, local models, vault path  
-- [ ] Minimal e2e test with fixtures (no live IMAP required in CI)
+- [ ] CLI/API: `ingest` -> pipeline -> plan awaiting approval
+- [ ] Manual approval -> governance -> (observe: log intended actions only)
+- [ ] Toggle `approve`/`act` for quarantining a labeled test folder only
+- [ ] README quickstart: OVH IMAP, local models, vault path
+- [ ] Minimal e2e test with fixtures (no live IMAP in CI)
 
-**Exit criteria (Phase 1):** Developer can run ScamFighter fully offline (except optional cloud LLM), process mail, store immutable evidence, and never mutate mail unless mode + SGRS + approval allow it.
+**Exit (Phase 1):** run fully offline (except opt-in cloud LLM), process mail,
+store immutable evidence, never mutate mail unless mode + governance + approval
+allow it.
 
----
+## Evidence & reporting (standards-based)
 
-## Later phases (out of Phase 1 scope)
+- Preserve raw `.eml` + full headers; SHA-256; write-once; RFC 3161 timestamps.
+- Chain-of-custody metadata (who/what/when/tool version/hash tree).
+- **ARF / X-ARF** for provider abuse reports.
+- **STIX 2.1** (optionally over TAXII) for CERT / threat-intel sharing.
+- **RDAP-driven** routing to the correct `abuse@` contact.
+- Templated **IC3 / national CERT / police** referrals with the case bundle.
+- **Crypto-address** reporting (Chainabuse / exchange abuse desks).
+- **Defang** all indicators in reports (`hxxp://`, `evil[.]com`).
 
-| Phase | Focus | Depends on |
-|-------|--------|------------|
-| **2 — Web UI** | Case queue, evidence viewer, approval UX | Stable API + schemas |
-| **3 — Reporting integrations** | Real `reporting` MCP backends | Phase 1 vault + SGRS |
-| **4 — Multi-provider mail** | Beyond OVH IMAP | `mail-read`/`mail-actions` abstractions |
-| **5 — Enterprise deployment** | Hardened deploy, SSO, multi-tenant | Phases 2–4 |
-
----
-
-## Suggested build order (milestones)
+## Suggested milestones
 
 ```text
-M0  Repo + uv + CI + SGRS dependency
+M0  Repo + governance boundary + CI + docs        [done]
 M1  Schemas + SQLite + evidence vault
 M2  mail-read + evidence MCP
-M3  SGRS policies + gated transitions
-M4  Intake → Analyzer → Similarity → Evidence agents
+M3  Governance policies + gated transitions (SQLite-backed)
+M4  Intake -> Analyzer -> Similarity -> Evidence agents
 M5  Planner + Approval + FastAPI
-M6  mail-actions (gated) + mode matrix tests
+M6  mail-actions (gated) + mode-matrix tests
 M7  Phase 1 polish: docs, e2e fixtures, security scanners on
 ```
 
 ## Risks & open decisions
 
-1. **SGRS package coordinates** — Confirm public repo/package name and policy DSL version before WS3.  
-2. **LiquidAI LFM2.5 local runtime** — Confirm install/runtime API for default provider; keep Ollama as mandatory fallback.  
-3. **IMAP auth** — Prefer app passwords / OAuth if OVH supports; never commit secrets.  
-4. **Similarity** — Start with deterministic features (headers, domains, URLs, hashes); add embeddings later if needed.  
-5. **Approval UX** — Phase 1 can be CLI/API-only; defer rich UI to Phase 2.
+1. **SGRS coordinates** - if/when a public SGRS exists, add it as an adapter; the
+   core no longer blocks on it.
+2. **Edge model runtime** - confirm LiquidAI LFM2 local runtime; keep Ollama as a
+   mandatory fallback.
+3. **IMAP auth** - prefer app passwords / OAuth; never commit secrets.
+4. **Similarity** - start deterministic (headers, domains, URLs, hashes); add
+   embeddings if needed.
+5. **Approval UX** - CLI/API in Phase 1; rich UI in Phase 2.
 
 ## Definition of done (repo-level, ongoing)
 
-- Typed models for all agent I/O  
-- Observe-only default verified by tests  
-- Evidence write-once verified by tests  
-- SGRS is the only path to side-effecting MCP tools  
-- Security tooling from PRD enabled before first public release tag
+- Typed models for all agent I/O
+- Observe-only default verified by tests
+- Evidence write-once verified by tests
+- Governance is the only path to side-effecting MCP tools
+- Security tooling from the PRD enabled before the first public release tag
