@@ -6,6 +6,7 @@ from scamfighter_core import (
     EgressBlocked,
     EgressGuard,
     SemanticGuardResponse,
+    egress_audit_record,
     guard_cloud_egress,
 )
 
@@ -32,6 +33,37 @@ def test_deterministic_redactor_masks_structured_pii():
     assert set(v.findings) >= {"EMAIL", "BTC", "IP", "URL", "PHONE"}
     # Deterministic layer never claims semantic coverage.
     assert v.semantic_pii_checked is False
+
+
+def test_egress_audit_record_is_labels_only():
+    v = DeterministicRedactor().inspect(SAMPLE)
+    record = egress_audit_record(v)
+    blob = str(record)
+    assert "victim@example.com" not in blob
+    assert "1NBwsBzgJTX7KTAd8gZe53pLP73wtSEXDS" not in blob
+    assert "213.230.87.82" not in blob
+    assert "http://www.coinbase.com" not in blob
+    assert "findings" in record
+    assert "EMAIL" in record["findings"]
+    assert record["allowed"] is True
+    assert record["semantic_pii_checked"] is False
+
+
+def test_guard_cloud_egress_emits_audit():
+    records: list[dict] = []
+
+    def fake_client(text: str) -> SemanticGuardResponse:
+        return SemanticGuardResponse(redacted_text=text, pii_labels=("NAME",))
+
+    guard = CompositeEgressGuard(
+        [DeterministicRedactor(), CallableSemanticGuard(fake_client)], strict=True
+    )
+    out = guard_cloud_egress(SAMPLE, guard, audit=records.append)
+    assert "[REDACTED_EMAIL]" in out
+    assert len(records) == 1
+    blob = str(records[0])
+    assert "victim@example.com" not in blob
+    assert "EMAIL" in records[0]["findings"]
 
 
 def test_semantic_guard_fails_closed_when_unconfigured():

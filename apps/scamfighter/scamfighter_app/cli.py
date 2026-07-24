@@ -78,7 +78,7 @@ def build_source(args: argparse.Namespace) -> MailSource:
     raise SystemExit(f"unknown source: {args.source}")
 
 
-def build_router(*, escalate: bool) -> ProviderRouter:
+def build_router(*, escalate: bool, audit_out=None) -> ProviderRouter:
     """Local Ollama by default; add a guarded cloud provider only if escalating."""
     local = OllamaLocalProvider(model=os.environ.get("SCAMFIGHTER_LOCAL_MODEL", "qwen2.5:3b"))
     cloud: OpenAICompatibleProvider | None = None
@@ -94,8 +94,25 @@ def build_router(*, escalate: bool) -> ProviderRouter:
         model = os.environ.get("SCAMFIGHTER_CLOUD_MODEL", "gpt-4o-mini")
         if not api_key:
             raise SystemExit("cloud escalation requires SCAMFIGHTER_CLOUD_API_KEY")
+
+        def _audit(record: dict) -> None:
+            # Labels only — never print the inspected text.
+            findings = ",".join(str(f) for f in record.get("findings", [])) or "-"
+            line = (
+                f"[egress] allowed={record.get('allowed')} "
+                f"findings={findings} "
+                f"semantic={record.get('semantic_pii_checked')} "
+                f"injection={record.get('injection_detected')}"
+            )
+            print(line, file=audit_out or sys.stderr)
+
         cloud = OpenAICompatibleProvider(
-            model, base_url=base_url, api_key=api_key, guard=guard, shieldflow=cfg
+            model,
+            base_url=base_url,
+            api_key=api_key,
+            guard=guard,
+            shieldflow=cfg,
+            audit=_audit,
         )
     return ProviderRouter(local, cloud)
 
@@ -152,7 +169,7 @@ def _report(
 
 def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
     source = build_source(args)
-    router = build_router(escalate=args.escalate) if args.summarize else None
+    router = build_router(escalate=args.escalate, audit_out=out) if args.summarize else None
 
     parsed_iter: Iterator[ParsedEmail] = source.iter_parsed(limit=args.limit)
     total = scams = errors = 0
@@ -185,7 +202,7 @@ def run_watch(
     """
     folder = Path(os.path.expanduser(args.path)) if args.path else DEFAULT_WATCH_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
-    router = build_router(escalate=args.escalate) if args.summarize else None
+    router = build_router(escalate=args.escalate, audit_out=out) if args.summarize else None
 
     print(f"Watching {folder} (Ctrl-C to stop)...", file=out)
     out.flush()

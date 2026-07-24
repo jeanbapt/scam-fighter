@@ -33,6 +33,7 @@ def test_local_provider_conforms_and_completes():
 
 def test_cloud_provider_redacts_before_send_and_routes():
     captured = {}
+    audits: list[dict] = []
 
     def sender(url: str, headers: dict, body: bytes) -> str:
         captured["url"] = url
@@ -51,6 +52,7 @@ def test_cloud_provider_redacts_before_send_and_routes():
         guard=guard,
         shieldflow=CFG,
         sender=sender,
+        audit=audits.append,
     )
     out = p.complete("email me at victim@example.com")
     assert out == "ok"
@@ -60,6 +62,10 @@ def test_cloud_provider_redacts_before_send_and_routes():
     assert "[REDACTED_EMAIL]" in user_msg
     assert captured["auth"] == "Bearer sk-test"
     assert captured["url"].endswith("/chat/completions")
+    assert audits
+    blob = str(audits)
+    assert "victim@example.com" not in blob
+    assert "EMAIL" in audits[0]["findings"]
 
 
 def test_cloud_provider_fails_closed_when_shieldflow_down():

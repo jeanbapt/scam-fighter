@@ -31,6 +31,7 @@ from scamfighter_core.shieldflow import ShieldFlowConfig
 
 # (url, headers, body) -> response text
 HttpSender = Callable[[str, dict[str, str], bytes], str]
+EgressAuditSink = Callable[[dict[str, object]], None]
 
 
 def _post(
@@ -113,7 +114,8 @@ class OpenAICompatibleProvider:
     """Guarded cloud escalation via an OpenAI-compatible endpoint.
 
     Prompts pass the egress guard (fail-closed) and are sent through the ShieldFlow
-    proxy so PII is tokenized in transit.
+    proxy so PII is tokenized in transit. An optional ``audit`` sink receives a
+    labels-only record of each guard decision (never the text content).
     """
 
     is_local = False
@@ -127,17 +129,19 @@ class OpenAICompatibleProvider:
         guard: EgressGuard,
         shieldflow: ShieldFlowConfig,
         sender: HttpSender | None = None,
+        audit: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         self._model = model
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._guard = guard
+        self._audit = audit
         self._send = sender or _proxied_sender(shieldflow)
 
     def complete(self, prompt: str, *, system: str | None = None) -> str:
         # Fail-closed: redact in-process and confirm ShieldFlow is live before send.
-        safe_prompt = guard_cloud_egress(prompt, self._guard)
-        safe_system = guard_cloud_egress(system, self._guard) if system else None
+        safe_prompt = guard_cloud_egress(prompt, self._guard, audit=self._audit)
+        safe_system = guard_cloud_egress(system, self._guard, audit=self._audit) if system else None
 
         messages: list[dict[str, str]] = []
         if safe_system:
