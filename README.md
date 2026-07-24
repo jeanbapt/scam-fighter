@@ -56,7 +56,7 @@ models are opt-in escalation for the hard minority of cases only. See
 ```
 apps/           # runnable application(s)
 packages/       # shared libraries (scamfighter_core: models + governance)
-mcp_servers/    # mail-read, mail-actions, evidence, reporting, threat-intel
+mcp_servers/    # filing (+ placeholders: mail-read, mail-actions, evidence, reporting, threat-intel)
 policies/       # governance policies
 schemas/        # strict YAML + Pydantic schemas
 docs/           # architecture, governance, legal, threat model, plan
@@ -86,6 +86,8 @@ uv run python -m scamfighter_app ingest --source macmail --limit 50
 
 See [docs/MACOS_MAIL.md](docs/MACOS_MAIL.md) for running on top of macOS Mail.
 See [docs/FILING.md](docs/FILING.md) for OVH abuse + French THESEE / police filing.
+See [mcp_servers/filing/README.md](mcp_servers/filing/README.md) for the observe-first filing MCP
+(DNSBL, mailto drafts, confirm-gated Spamhaus submit, Playwright form plans).
 
 ## Documentation
 

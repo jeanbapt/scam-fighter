@@ -1,0 +1,18 @@
+[project]
+name = "scamfighter-filing-mcp"
+version = "0.1.0"
+description = "MCP server for ScamFighter evidence-pack filing assistants"
+requires-python = ">=3.13"
+dependencies = [
+  "mcp>=1.2",
+]
+
+[project.scripts]
+scamfighter-filing-mcp = "scamfighter_filing_mcp:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["scamfighter_filing_mcp"]
