@@ -67,13 +67,20 @@ tests/          # unit, integration, e2e
 
 ```bash
 cp .env.example .env
-uv run --with pytest pytest -q      # run the governance tests
+uv run --with pytest pytest -q      # run the test suite
+
+# Analyze Apple Mail locally (observe-only; needs Full Disk Access)
+export PYTHONPATH=packages/scamfighter_core:apps/scamfighter
+uv run python -m scamfighter_app ingest --source macmail --limit 50
 ```
+
+See [docs/MACOS_MAIL.md](docs/MACOS_MAIL.md) for running on top of macOS Mail.
 
 ## Documentation
 
 - [PRD](PRD.md)
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- [Running on macOS Mail](docs/MACOS_MAIL.md)
 - [Governance model](docs/GOVERNANCE.md)
 - [Legal basis and boundaries](docs/LEGAL.md)
 - [Threat model](docs/THREAT_MODEL.md)

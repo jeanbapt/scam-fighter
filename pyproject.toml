@@ -28,4 +28,4 @@ target-version = "py313"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["packages/scamfighter_core"]
+pythonpath = ["packages/scamfighter_core", "apps/scamfighter"]

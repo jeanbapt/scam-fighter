@@ -33,6 +33,24 @@ from scamfighter_core.governance import (
     Transition,
     UnauthorizedTransition,
 )
+from scamfighter_core.llm import (
+    LLMProvider,
+    OllamaLocalProvider,
+    OpenAICompatibleProvider,
+    ProviderRouter,
+)
+from scamfighter_core.mail_source import (
+    ImapSource,
+    MacMailSource,
+    MailSource,
+    default_mac_mail_root,
+    parse_emlx,
+)
+from scamfighter_core.pipeline import (
+    Analysis,
+    analyze,
+    summarize,
+)
 from scamfighter_core.shieldflow import (
     ShieldFlowConfig,
     ShieldFlowGuard,
@@ -43,6 +61,7 @@ from scamfighter_core.shieldflow import (
 )
 
 __all__ = [
+    "Analysis",
     "ApprovalDecision",
     "AuditEvent",
     "AuthResults",
@@ -55,20 +74,31 @@ __all__ = [
     "Governance",
     "GovernanceError",
     "GuardVerdict",
+    "ImapSource",
     "Indicators",
+    "LLMProvider",
     "LocalGovernance",
+    "MacMailSource",
+    "MailSource",
+    "OllamaLocalProvider",
+    "OpenAICompatibleProvider",
     "ParsedEmail",
+    "ProviderRouter",
     "SemanticGuardClient",
     "SemanticGuardResponse",
     "ShieldFlowConfig",
     "ShieldFlowGuard",
     "Transition",
     "UnauthorizedTransition",
+    "analyze",
     "defang",
+    "default_mac_mail_root",
     "guard_cloud_egress",
     "httpx_transport",
     "is_active",
     "load_config",
     "parse_eml",
+    "parse_emlx",
     "requests_transport",
+    "summarize",
 ]

@@ -136,9 +136,14 @@ Microsoft Presidio.
 
 ### WS2 - MCP servers (capability isolation)
 
+Mail sources implemented in `scamfighter_core.mail_source`: `MacMailSource`
+(Apple Mail `.emlx`, read-only, needs Full Disk Access — see `docs/MACOS_MAIL.md`)
+and `ImapSource` (read-only IMAP, e.g. OVH). The CLI (`apps/scamfighter`) wires
+source -> parse -> deterministic `analyze` -> optional guarded `summarize`.
+
 | Server | Phase 1 scope |
 |--------|----------------|
-| `mail-read` | IMAP fetch/list/search (OVH); no mutations |
+| `mail-read` | Apple Mail `.emlx` + IMAP fetch/list/search; no mutations |
 | `mail-actions` | Label/move/quarantine own mail only; gated; disabled in observe mode |
 | `evidence` | Vault put/get/list; never overwrite |
 | `reporting` | Emit local ARF/X-ARF + STIX artifacts; external delivery in Phase 3 |
@@ -166,18 +171,21 @@ in observe mode.
 
 Typed steps, structured outputs only:
 
-1. **Intake** - normalize IMAP message -> `Message`
-2. **Campaign Analyzer** - classify + SPF/DKIM/DMARC -> `Campaign`
+1. **Intake** - normalize message -> `ParsedEmail` (done: `email_ingest`)
+2. **Campaign Analyzer** - classify + SPF/DKIM/DMARC -> `Analysis` (done:
+   deterministic `pipeline.analyze`; PydanticAI agent layer later)
 3. **Similarity Hunter** - related messages -> `SimilarityHit[]`
 4. **Evidence Builder** - assemble + write vault via MCP -> `EvidencePackage`
 5. **Planner** - propose defensive actions -> `Plan` (observe annotations in observe mode)
 6. **Approval** - human/policy gate -> `ApprovalDecision`
 
-- [ ] Provider router (edge -> Ollama local -> opt-in cloud)
+- [x] Provider router (`llm.py`): local Ollama -> guarded OpenAI-compatible cloud
+      through ShieldFlow, fail-closed
+- [x] CLI entrypoint (`apps/scamfighter`): `ingest` (observe-only)
 - [ ] FastAPI routes: health, ingest trigger, case status, approve plan
 
 **Exit:** one mailbox path (fixture or real) produces a plan + evidence without
-mutating mail.
+mutating mail. (Deterministic verdict + guarded summary path: done.)
 
 ### WS5 - Local MVP vertical slice (Phase 1 done)
 
