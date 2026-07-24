@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from scamfighter_core import MacMailSource, MailSource, parse_emlx
+from scamfighter_core import FolderSource, MacMailSource, MailSource, parse_emlx
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "i_recorded_you.eml"
 
@@ -35,6 +35,25 @@ def test_macmail_source_reads_emlx(tmp_path: Path):
     assert len(parsed) == 1
     assert parsed[0].subject == "[SPAM] I RECORDED YOU!"
     assert parsed[0].is_self_addressed is True
+
+
+def test_folder_source_reads_eml_and_emlx(tmp_path: Path):
+    message = FIXTURE.read_text(encoding="utf-8")
+    (tmp_path / "a.eml").write_text(message, encoding="utf-8")
+    (tmp_path / "b.emlx").write_bytes(_emlx_bytes(message))
+
+    source = FolderSource(tmp_path)
+    assert isinstance(source, MailSource)
+    parsed = list(source.iter_parsed())
+    assert len(parsed) == 2
+    assert all(p.subject == "[SPAM] I RECORDED YOU!" for p in parsed)
+
+
+def test_folder_source_missing_dir_raises(tmp_path: Path):
+    import pytest
+
+    with pytest.raises(FileNotFoundError):
+        FolderSource(tmp_path / "nope")
 
 
 def test_macmail_limit(tmp_path: Path):

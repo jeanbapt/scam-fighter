@@ -40,6 +40,7 @@ from scamfighter_core.llm import (
     ProviderRouter,
 )
 from scamfighter_core.mail_source import (
+    FolderSource,
     ImapSource,
     MacMailSource,
     MailSource,
@@ -71,6 +72,7 @@ __all__ = [
     "DeterministicRedactor",
     "EgressBlocked",
     "EgressGuard",
+    "FolderSource",
     "Governance",
     "GovernanceError",
     "GuardVerdict",

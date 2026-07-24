@@ -69,8 +69,11 @@ tests/          # unit, integration, e2e
 cp .env.example .env
 uv run --with pytest pytest -q      # run the test suite
 
-# Analyze Apple Mail locally (observe-only; needs Full Disk Access)
+# Analyze suspect emails you exported into a folder (observe-only; no permissions)
 export PYTHONPATH=packages/scamfighter_core:apps/scamfighter
+uv run python -m scamfighter_app ingest --source folder --path ~/scam-inbox
+
+# Or read Apple Mail's on-disk store directly (advanced; needs Full Disk Access)
 uv run python -m scamfighter_app ingest --source macmail --limit 50
 ```
 

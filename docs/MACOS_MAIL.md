@@ -1,7 +1,43 @@
 # Running ScamFighter on top of macOS Mail
 
-ScamFighter can analyze the mail already sitting in Apple Mail (Mail.app) on your
-Mac, fully locally and read-only. This page explains what that takes.
+ScamFighter can analyze the mail sitting in Apple Mail (Mail.app), fully locally
+and read-only. There are several ways to get at it, with very different security
+surfaces — pick the least-privilege one that fits.
+
+## Choosing an access method (least privilege first)
+
+| Method | macOS permission | Surface | When |
+|--------|------------------|---------|------|
+| **Folder / drop** (`--source folder`) | none | Only the files you place there | **Recommended default.** Export just the suspect emails |
+| **IMAP** (`--source imap`) | none (uses app password) | One mailbox over the network | Server runs; no local Mail access |
+| **AppleScript/JXA** | Automation (Apple Events) for Mail | Scripting Mail only | Occasional, low-fidelity |
+| **`.emlx` store, dedicated signed helper** | Full Disk Access on the helper | All TCC data, but only that helper | High-fidelity reads, contained |
+| **`.emlx` store via your terminal/IDE** (`--source macmail`) | Full Disk Access on terminal/IDE | **All** TCC data for anything that terminal runs | Quick local experiment only |
+
+> Full Disk Access is **coarse**: macOS grants it to the *responsible app* (for a
+> CLI, that's your terminal/IDE, not the script). Granting it to a general-purpose
+> terminal exposes Mail, Messages, Safari history, other apps' containers and
+> backups to any code that terminal ever runs. For a tool that handles hostile
+> content and worries about malicious dependencies, that is a poor default. Prefer
+> the folder or IMAP source; use FDA only via a dedicated signed helper if you
+> truly need the raw store.
+
+### Recommended: folder / drop source (no special permission)
+
+Export the suspicious messages out of Mail (select messages -> drag to a Finder
+folder, or File -> Save As; or a Mail rule that copies matches to a folder), then:
+
+```bash
+export PYTHONPATH=packages/scamfighter_core:apps/scamfighter
+uv run python -m scamfighter_app ingest --source folder --path ~/scam-inbox
+```
+
+You control exactly what lands in that folder, so ScamFighter only ever sees the
+emails you chose to hand it — nothing else on disk.
+
+## Reading the on-disk store directly (advanced)
+
+If you specifically need the raw `.emlx` store (highest evidence fidelity), read on.
 
 ## How Apple Mail stores messages
 
@@ -21,10 +57,10 @@ Mail.app keeps every message as an individual `.emlx` file under:
 Because we read the on-disk store, **no account password is needed** and nothing
 is fetched over the network.
 
-## The one requirement: Full Disk Access
+## The requirement: Full Disk Access (and its blast radius)
 
-`~/Library/Mail` is protected by macOS TCC. The process that runs ScamFighter (your
-terminal app, e.g. Terminal, iTerm, or the IDE) must be granted **Full Disk
+`~/Library/Mail` is protected by macOS TCC. The **responsible app** — for a CLI,
+that is your terminal/IDE, not the Python script — must be granted **Full Disk
 Access**:
 
 1. System Settings -> Privacy & Security -> Full Disk Access.
@@ -33,6 +69,13 @@ Access**:
 
 Without it, the mail directory appears empty (you'll see "No Apple Mail store
 found" or zero messages).
+
+Be deliberate here: FDA on your terminal is **not** scoped to Mail. It grants read
+access to every TCC-protected location (Messages, Safari history, other apps'
+containers, Time Machine) to anything that terminal subsequently runs — including
+third-party dependencies. If you need the raw store regularly, build a minimal,
+code-signed helper `.app`, make *that* the responsible process, and grant FDA only
+to the helper. Otherwise prefer `--source folder`, which needs no permission at all.
 
 ## Run it
 

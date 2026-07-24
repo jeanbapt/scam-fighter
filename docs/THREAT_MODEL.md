@@ -37,6 +37,16 @@ reports. It must be hardened as both a **malware-handling tool** and a
 - **ShieldFlow trust material stays out of the repo.** Its CA bundle, control
   token, and proxy config live under `~/.shieldflow/` and are never committed.
 
+### Least-privilege mail access
+- Default to `--source folder`: the operator exports only suspect messages, so the
+  tool sees nothing else on disk and needs no macOS permission.
+- macOS **Full Disk Access is coarse** — TCC grants it to the responsible app (the
+  terminal/IDE), exposing all protected data to any code that app runs, including
+  dependencies. Treat FDA-to-terminal as a supply-chain amplifier; if the raw
+  `.emlx` store is required, grant FDA to a minimal signed helper only.
+- IMAP access is read-only and credentialled via Keychain/app password, scoped to
+  one mailbox.
+
 ### Preventing unsafe actions
 - Observe-only by default; `mail-actions` disabled unless mode + governance allow.
 - Every side effect requires a governed transition + recorded approval
