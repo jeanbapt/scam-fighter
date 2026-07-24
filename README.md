@@ -74,6 +74,9 @@ uv run --with pytest pytest -q      # run the test suite
 export PYTHONPATH=packages/scamfighter_core:apps/scamfighter
 uv run python -m scamfighter_app ingest --source folder
 
+# Or leave a hands-off watcher running that analyzes new drops in real time:
+uv run python -m scamfighter_app watch
+
 # Or read Apple Mail's on-disk store directly (advanced; needs Full Disk Access)
 uv run python -m scamfighter_app ingest --source macmail --limit 50
 ```

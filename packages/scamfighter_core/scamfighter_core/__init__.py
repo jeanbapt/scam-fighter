@@ -46,6 +46,7 @@ from scamfighter_core.mail_source import (
     MailSource,
     default_mac_mail_root,
     parse_emlx,
+    read_message_file,
 )
 from scamfighter_core.pipeline import (
     Analysis,
@@ -101,6 +102,7 @@ __all__ = [
     "load_config",
     "parse_eml",
     "parse_emlx",
+    "read_message_file",
     "requests_transport",
     "summarize",
 ]
