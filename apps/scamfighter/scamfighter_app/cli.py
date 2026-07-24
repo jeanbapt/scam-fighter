@@ -28,8 +28,9 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from typing import TextIO
 
 from scamfighter_core import (
     Analysis,
@@ -80,7 +81,7 @@ def build_source(args: argparse.Namespace) -> MailSource:
     raise SystemExit(f"unknown source: {args.source}")
 
 
-def build_router(*, escalate: bool, audit_out=None) -> ProviderRouter:
+def build_router(*, escalate: bool, audit_out: TextIO | None = None) -> ProviderRouter:
     """Local Ollama by default; add a guarded cloud provider only if escalating."""
     local = OllamaLocalProvider(model=os.environ.get("SCAMFIGHTER_LOCAL_MODEL", "qwen2.5:3b"))
     cloud: OpenAICompatibleProvider | None = None
@@ -97,9 +98,11 @@ def build_router(*, escalate: bool, audit_out=None) -> ProviderRouter:
         if not api_key:
             raise SystemExit("cloud escalation requires SCAMFIGHTER_CLOUD_API_KEY")
 
-        def _audit(record: dict) -> None:
+        def _audit(record: dict[str, object]) -> None:
             # Labels only — never print the inspected text.
-            findings = ",".join(str(f) for f in record.get("findings", [])) or "-"
+            raw_findings = record.get("findings", [])
+            findings_list = raw_findings if isinstance(raw_findings, list) else []
+            findings = ",".join(str(f) for f in findings_list) or "-"
             line = (
                 f"[egress] allowed={record.get('allowed')} "
                 f"findings={findings} "
@@ -147,7 +150,7 @@ def _report(
     router: ProviderRouter | None,
     escalate: bool,
     show_all: bool,
-    out,
+    out: TextIO,
     prefix: str = "",
 ) -> bool:
     """Analyze one message, print it if noteworthy, return whether it was sextortion.
@@ -164,7 +167,7 @@ def _report(
             try:
                 summary = summarize(parsed, router, escalate=escalate)
                 print(f"    summary: {summary}", file=out)
-            except Exception as exc:  # noqa: BLE001 — never kill the loop for a summary
+            except Exception as exc:
                 print(f"    summary: [failed: {exc}]", file=out)
     return analysis.is_sextortion
 
@@ -193,7 +196,7 @@ def _move_processed(path: Path, dest_dir: Path) -> Path:
     return Path(shutil.move(str(path), str(target)))
 
 
-def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
+def run_ingest(args: argparse.Namespace, *, out: TextIO = sys.stdout) -> int:
     source = build_source(args)
     router = build_router(escalate=args.escalate, audit_out=out) if args.summarize else None
 
@@ -204,7 +207,7 @@ def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
         try:
             if _report(parsed, router=router, escalate=args.escalate, show_all=args.all, out=out):
                 scams += 1
-        except Exception as exc:  # noqa: BLE001 — poison message must not abort the batch
+        except Exception as exc:
             errors += 1
             print(f"[error] skipped message: {exc}", file=out)
     suffix = f" ({errors} error(s))." if errors else "."
@@ -215,8 +218,8 @@ def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
 def run_watch(
     args: argparse.Namespace,
     *,
-    out=sys.stdout,
-    _sleep=time.sleep,
+    out: TextIO = sys.stdout,
+    _sleep: Callable[[float], None] = time.sleep,
     _max_iterations: int | None = None,
 ) -> int:
     """Tail a watch folder and analyze new .eml/.emlx drops in real time.
@@ -265,7 +268,7 @@ def run_watch(
                         prefix=f"[{stamp}] {path.name}",
                     ):
                         scams += 1
-                except Exception as exc:  # noqa: BLE001 — poison must not kill the watcher
+                except Exception as exc:
                     errors += 1
                     stamp = time.strftime("%H:%M:%S")
                     print(f"[{stamp}] {path.name}: skipped ({exc})", file=out)

@@ -112,7 +112,7 @@ def html_to_text(html: str) -> str:
     try:
         parser.feed(html)
         parser.close()
-    except Exception:  # noqa: BLE001 — hostile HTML must never crash ingestion
+    except Exception:
         return re.sub(r"<[^>]+>", " ", html)
     return parser.text()
 
@@ -166,18 +166,18 @@ def _extract_body(msg: EmailMessage) -> str:
             if ctype == "text/plain":
                 try:
                     plain_parts.append(str(part.get_content()))
-                except Exception:  # noqa: BLE001,S112 — skip undecodable hostile parts
+                except Exception:  # noqa: S112 — skip undecodable hostile parts
                     continue
             elif ctype == "text/html":
                 try:
                     html_parts.append(str(part.get_content()))
-                except Exception:  # noqa: BLE001,S112 — skip undecodable hostile parts
+                except Exception:  # noqa: S112 — skip undecodable hostile parts
                     continue
     else:
         ctype = msg.get_content_type()
         try:
             content = str(msg.get_content()) if msg.get_content_maintype() == "text" else ""
-        except Exception:  # noqa: BLE001 — hostile MIME must not crash
+        except Exception:
             content = ""
         if ctype == "text/html":
             html_parts.append(content)
@@ -243,7 +243,9 @@ def _from_message(msg: EmailMessage) -> ParsedEmail:
 
 def parse_eml_bytes(raw: bytes) -> ParsedEmail:
     """Parse raw RFC 822 bytes, respecting charset headers (preferred entry point)."""
-    msg: EmailMessage = message_from_bytes(raw, policy=policy.default)  # type: ignore[assignment]
+    msg = message_from_bytes(raw, policy=policy.default)
+    if not isinstance(msg, EmailMessage):
+        raise TypeError("expected EmailMessage from message_from_bytes")
     return _from_message(msg)
 
 
@@ -253,7 +255,9 @@ def parse_eml(raw: str) -> ParsedEmail:
     Prefer :func:`parse_eml_bytes` when you have the original bytes so non-UTF-8
     charsets are preserved.
     """
-    msg: EmailMessage = message_from_string(raw, policy=policy.default)  # type: ignore[assignment]
+    msg = message_from_string(raw, policy=policy.default)
+    if not isinstance(msg, EmailMessage):
+        raise TypeError("expected EmailMessage from message_from_string")
     return _from_message(msg)
 
 

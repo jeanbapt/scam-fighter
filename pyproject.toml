@@ -26,6 +26,19 @@ package = false
 line-length = 100
 target-version = "py313"
 
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S108"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+packages = ["scamfighter_core", "scamfighter_app"]
+mypy_path = ["packages/scamfighter_core", "apps/scamfighter"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["packages/scamfighter_core", "apps/scamfighter"]

@@ -43,7 +43,9 @@ def _post(
     cafile: str | None = None,
     timeout: float = 60.0,
 ) -> str:
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"refusing non-http(s) URL: {url!r}")
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")  # noqa: S310
     if proxy:
         handlers: list[urllib.request.BaseHandler] = [
             urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
@@ -57,7 +59,7 @@ def _post(
     else:
         opener = urllib.request.build_opener()
     with opener.open(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8")
+        return str(resp.read().decode("utf-8"))
 
 
 def _direct_sender() -> HttpSender:

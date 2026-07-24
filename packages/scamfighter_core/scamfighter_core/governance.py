@@ -19,12 +19,12 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
-class CaseState(str, Enum):
+class CaseState(StrEnum):
     """Lifecycle of a single abuse case."""
 
     INGESTED = "ingested"
@@ -199,9 +199,11 @@ class LocalGovernance:
             self._persist_event(event)
 
     def _persist_event(self, event: AuditEvent) -> None:
-        assert self._audit_path is not None
-        self._audit_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._audit_path.open("a", encoding="utf-8") as fh:
+        path = self._audit_path
+        if path is None:
+            raise GovernanceError("audit_path required for persistence")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(event.to_dict(), sort_keys=True) + "\n")
 
     def _load_audit(self, path: Path) -> None:
