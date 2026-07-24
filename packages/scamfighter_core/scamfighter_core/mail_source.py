@@ -56,7 +56,7 @@ def parse_emlx(raw: bytes) -> str:
     return message.decode("utf-8", errors="replace")
 
 
-def _read_message_file(path: Path) -> str:
+def read_message_file(path: Path) -> str:
     """Read a ``.eml`` (raw RFC 822) or ``.emlx`` (Apple-framed) message file."""
     raw = path.read_bytes()
     if path.suffix.lower() == ".emlx":
@@ -91,7 +91,7 @@ class FolderSource:
             if limit is not None and count >= limit:
                 return
             try:
-                message = _read_message_file(path)
+                message = read_message_file(path)
             except OSError:
                 continue
             yield parse_eml(message)

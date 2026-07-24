@@ -50,6 +50,18 @@ uv run python -m scamfighter_app ingest --source folder            # reads ~/Sca
 uv run python -m scamfighter_app ingest --source folder --summarize
 ```
 
+### Fully hands-off: `watch`
+
+For a real-time loop, leave the watcher running. It tails `~/ScamFighter/inbox`
+and analyzes each new export the moment your Mail rule drops it in (it waits for
+the file to finish writing before reading). No extra dependencies; Ctrl-C to stop.
+
+```bash
+uv run python -m scamfighter_app watch                 # watches ~/ScamFighter/inbox
+uv run python -m scamfighter_app watch --summarize     # + local LLM summaries
+uv run python -m scamfighter_app watch --path ~/scam-inbox --interval 1
+```
+
 ### On-demand alternative (export what you selected)
 
 If you'd rather export manually, use

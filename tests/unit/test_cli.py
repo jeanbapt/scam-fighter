@@ -2,7 +2,7 @@ import io
 from pathlib import Path
 
 from scamfighter_app import main
-from scamfighter_app.cli import _build_parser, run_ingest
+from scamfighter_app.cli import _build_parser, run_ingest, run_watch
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "i_recorded_you.eml"
 
@@ -24,6 +24,32 @@ def test_ingest_macmail_reports_scam(tmp_path: Path):
     assert rc == 0
     assert "[SCAM] sextortion" in text
     assert "1 sextortion hit" in text
+
+
+def test_watch_processes_existing_drop(tmp_path: Path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "mail-1.eml").write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])
+    out = io.StringIO()
+    # A file needs one tick to be seen and one to be confirmed stable, so run a
+    # few iterations with a no-op sleep.
+    rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=3)
+    text = out.getvalue()
+    assert rc == 0
+    assert "mail-1.eml" in text
+    assert "[SCAM] sextortion" in text
+    assert "1 sextortion hit" in text
+
+
+def test_watch_creates_missing_folder(tmp_path: Path):
+    inbox = tmp_path / "does-not-exist-yet"
+    args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])
+    out = io.StringIO()
+    rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=1)
+    assert rc == 0
+    assert inbox.is_dir()
 
 
 def test_main_requires_command():

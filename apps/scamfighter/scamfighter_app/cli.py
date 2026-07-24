@@ -15,6 +15,10 @@ Examples::
 
     # Advanced: read Apple Mail's on-disk store (needs Full Disk Access)
     python -m scamfighter_app ingest --source macmail --path "~/Library/Mail/V10"
+
+    # Hands-off: watch the folder your Mail rule exports into, analyzing new
+    # drops as they arrive (Ctrl-C to stop).
+    python -m scamfighter_app watch
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -42,6 +47,8 @@ from scamfighter_core import (
     analyze,
     defang,
     load_config,
+    parse_eml,
+    read_message_file,
     summarize,
 )
 
@@ -115,6 +122,27 @@ def _format(analysis: Analysis) -> str:
     return "\n".join(lines)
 
 
+def _report(
+    parsed: ParsedEmail,
+    *,
+    router: ProviderRouter | None,
+    escalate: bool,
+    show_all: bool,
+    out,
+    prefix: str = "",
+) -> bool:
+    """Analyze one message, print it if noteworthy, return whether it was sextortion."""
+    analysis = analyze(parsed)
+    if analysis.verdict != "unknown" or show_all:
+        if prefix:
+            print(prefix, file=out)
+        print(_format(analysis), file=out)
+        if router is not None and analysis.verdict != "unknown":
+            summary = summarize(parsed, router, escalate=escalate)
+            print(f"    summary: {summary}", file=out)
+    return analysis.is_sextortion
+
+
 def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
     source = build_source(args)
     router = build_router(escalate=args.escalate) if args.summarize else None
@@ -123,16 +151,73 @@ def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
     total = scams = 0
     for parsed in parsed_iter:
         total += 1
-        analysis = analyze(parsed)
-        if analysis.is_sextortion:
+        if _report(parsed, router=router, escalate=args.escalate, show_all=args.all, out=out):
             scams += 1
-        if analysis.verdict == "unknown" and not args.all:
-            continue
-        print(_format(analysis), file=out)
-        if router is not None and analysis.verdict != "unknown":
-            summary = summarize(parsed, router, escalate=args.escalate)
-            print(f"    summary: {summary}", file=out)
     print(f"\nProcessed {total} message(s); {scams} sextortion hit(s).", file=out)
+    return 0
+
+
+def run_watch(
+    args: argparse.Namespace,
+    *,
+    out=sys.stdout,
+    _sleep=time.sleep,
+    _max_iterations: int | None = None,
+) -> int:
+    """Tail a watch folder and analyze new .eml/.emlx drops in real time.
+
+    Dependency-free: polls every ``--interval`` seconds and waits for a file's size
+    to stop changing before reading it, so partially written exports are skipped
+    until complete. Stop with Ctrl-C.
+    """
+    folder = Path(os.path.expanduser(args.path)) if args.path else DEFAULT_WATCH_FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    router = build_router(escalate=args.escalate) if args.summarize else None
+
+    print(f"Watching {folder} (Ctrl-C to stop)...", file=out)
+    out.flush()
+
+    processed: set[Path] = set()
+    pending_size: dict[Path, int] = {}
+    total = scams = 0
+    iterations = 0
+    try:
+        while True:
+            for path in FolderSource(folder).iter_message_paths():
+                if path in processed:
+                    continue
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                if pending_size.get(path) != size:
+                    pending_size[path] = size  # not yet stable; check again next tick
+                    continue
+                try:
+                    parsed = parse_eml(read_message_file(path))
+                except OSError:
+                    continue
+                total += 1
+                stamp = time.strftime("%H:%M:%S")
+                if _report(
+                    parsed,
+                    router=router,
+                    escalate=args.escalate,
+                    show_all=args.all,
+                    out=out,
+                    prefix=f"[{stamp}] {path.name}",
+                ):
+                    scams += 1
+                out.flush()
+                processed.add(path)
+                pending_size.pop(path, None)
+            iterations += 1
+            if _max_iterations is not None and iterations >= _max_iterations:
+                break
+            _sleep(args.interval)
+    except KeyboardInterrupt:
+        print(file=out)
+    print(f"Watched {folder}: processed {total} message(s); {scams} sextortion hit(s).", file=out)
     return 0
 
 
@@ -164,6 +249,26 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--imap-user")
     ingest.add_argument("--imap-folder", default="INBOX")
     ingest.set_defaults(func=run_ingest)
+
+    watch = sub.add_parser(
+        "watch",
+        help="tail the watch folder and analyze new drops in real time (observe-only)",
+    )
+    watch.add_argument(
+        "--path",
+        help="folder to watch (default ~/ScamFighter/inbox); created if missing",
+    )
+    watch.add_argument(
+        "--interval", type=float, default=2.0, help="poll interval in seconds (default 2)"
+    )
+    watch.add_argument("--all", action="store_true", help="show non-scam messages too")
+    watch.add_argument("--summarize", action="store_true", help="draft LLM summaries")
+    watch.add_argument(
+        "--escalate",
+        action="store_true",
+        help="use guarded cloud LLM (through ShieldFlow) instead of local",
+    )
+    watch.set_defaults(func=run_watch)
     return parser
 
 
