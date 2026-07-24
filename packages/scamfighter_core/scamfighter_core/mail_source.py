@@ -19,6 +19,7 @@ open attachments. Symlinks are never followed; oversized files are skipped.
 
 from __future__ import annotations
 
+import contextlib
 import imaplib
 from collections.abc import Iterator
 from pathlib import Path
@@ -220,8 +221,6 @@ class ImapSource:
                     except (ValueError, TypeError, UnicodeError):
                         continue
         finally:
-            try:
+            with contextlib.suppress(imaplib.IMAP4.error, OSError):
                 conn.close()
-            except (imaplib.IMAP4.error, OSError):
-                pass
             conn.logout()

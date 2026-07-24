@@ -65,9 +65,11 @@ reports. It must be hardened as both a **malware-handling tool** and a
 - Signed commits; branch protection; required reviews; `CODEOWNERS` on sensitive
   areas (governance, `mail-actions`, reporting).
 - Committed lockfile; pinned dependencies; Dependabot.
-- OSV Scanner, pip-audit, CodeQL, Semgrep, OpenSSF Scorecard in CI.
+- OSV Scanner, pip-audit, CodeQL, Semgrep, gitleaks, dependency-review, and
+  OpenSSF Scorecard in CI (SHA-pinned Actions).
 - Least-privilege `GITHUB_TOKEN`; secret scanning + push protection.
-- SBOM + Sigstore provenance on releases.
+- SBOM + Sigstore provenance on releases (deferred to first public tag).
+- Optional local parity via `.pre-commit-config.yaml` (ruff + gitleaks).
 
 ### Detection-evasion risk
 - Publishing detection logic can help scammers evade. Keep the project open, but

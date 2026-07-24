@@ -13,10 +13,8 @@ jobs:
   lint-test:
     runs-on: ubuntu-latest
     steps:
-      # Action versions are kept updated by Dependabot; pin to SHAs before the
-      # first public release for OpenSSF Scorecard compliance.
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           python-version: "3.13"
       - name: Lint
@@ -30,3 +28,7 @@ jobs:
           apps/scamfighter/scamfighter_app
       - name: Tests
         run: uv run --with pytest pytest -q
+      - name: pip-audit
+        run: |
+          uv export --extra dev --quiet > /tmp/reqs.txt
+          uv run --with pip-audit pip-audit -r /tmp/reqs.txt

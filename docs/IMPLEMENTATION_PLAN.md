@@ -116,10 +116,11 @@ Microsoft Presidio.
 - [x] `Governance` Protocol + `LocalGovernance` in `scamfighter_core` (+ tests)
 - [x] Governance / Legal / Threat-model / Security / Contributing / CoC docs
 - [x] CI: lint + typecheck + unit tests; Dependabot; least-privilege tokens
-- [ ] Enable security scanners as code lands: OSV, pip-audit, CodeQL, Semgrep,
-      OpenSSF Scorecard, SBOM, Sigstore provenance
+- [x] Enable security scanners: OSV, pip-audit, CodeQL, Semgrep, gitleaks,
+      dependency-review, OpenSSF Scorecard (SHA-pinned actions)
 - [ ] Branch protection on `main`: signed commits, required reviews, required checks
-- [ ] Commit lockfile once resolvable in CI (`uv.lock`)
+- [x] Commit lockfile once resolvable in CI (`uv.lock`)
+- [x] Stricter ruff (`E,F,I,B,S,UP,SIM,RUF`) + mypy `strict=true`
 
 **Exit:** clean checkout builds and tests green with no insider knowledge.
 
