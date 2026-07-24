@@ -33,3 +33,11 @@ def test_empty_rejected(tmp_path: Path):
     vault = EvidenceVault(tmp_path / "evidence")
     with pytest.raises(VaultError):
         vault.put_eml(b"")
+
+
+def test_get_rejects_non_hex_sha(tmp_path: Path):
+    vault = EvidenceVault(tmp_path / "evidence")
+    with pytest.raises(VaultError):
+        vault.get("../../etc/passwd")
+    with pytest.raises(VaultError):
+        vault.object_dir("not-a-digest")

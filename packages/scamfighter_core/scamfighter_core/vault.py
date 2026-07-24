@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class VaultError(Exception):
@@ -19,7 +22,7 @@ class VaultError(Exception):
 
 
 class VaultConflict(VaultError):
-    """Raised when a write would overwrite an existing object with different bytes."""
+    """Raised when a write would overwrite an existing object with different content."""
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,12 @@ class VaultObject:
     size: int
     stored_at: str
     already_present: bool = False
+
+
+def _require_sha256(sha256: str) -> str:
+    if not _SHA256_RE.fullmatch(sha256):
+        raise VaultError(f"invalid sha256 digest: {sha256!r}")
+    return sha256
 
 
 class EvidenceVault:
@@ -46,7 +55,8 @@ class EvidenceVault:
         return hashlib.sha256(data).hexdigest()
 
     def object_dir(self, sha256: str) -> Path:
-        return self._by_hash / sha256[:2] / sha256[2:4] / sha256
+        digest = _require_sha256(sha256)
+        return self._by_hash / digest[:2] / digest[2:4] / digest
 
     def put_eml(self, data: bytes, *, source_name: str = "") -> VaultObject:
         """Store raw RFC 822 bytes write-once. Idempotent for identical content."""

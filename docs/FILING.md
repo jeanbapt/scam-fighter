@@ -85,6 +85,29 @@ usually decoys, not the attacker’s host.
 1. Unmodified `.eml` + SHA-256.  
 2. Self-addressed From=To spoof.  
 3. SPF/DKIM/DMARC all failing (debunks “I emailed you from your account”).  
-4. Origin IP(s) from the `Received` chain.  
+4. Origin IP(s) from the `Received` chain (prefer SMTP `client-ip` from Auth-Results).  
 5. BTC ransom address.  
 6. You did not pay / did not engage.
+
+## API-friendly vs form-only
+
+| Channel | API? | ScamFighter path |
+|---------|------|------------------|
+| Spamhaus ZEN / Barracuda | DNS lookup | `enrich_ip_dnsbl` / provenance |
+| Spamhaus Submission Portal | REST (token) | filing MCP `request_spamhaus_raw_email` → confirm → submit (`dry_run` default) |
+| AbuseIPDB | REST (key) | optional; key in `.env` |
+| Blockstream / mempool | REST | provenance BTC |
+| RDAP | HTTPS | provenance |
+| `fraude@ovh.com` / ISP `abuse@` | SMTP | `draft_mailto` (writes draft; does not send) |
+| OVH Abuse web form | form only | `get_form_fill_plan("ovh_abuse")` + Playwright |
+| Pharos | form only | form plan; illicit **content** — spam often → signal-spam.fr |
+| THESEE | form + FranceConnect | form plan assist only (human login) |
+| Signal Spam (consumer) | UI / plugins | form plan |
+
+Filing MCP setup: [mcp_servers/filing/README.md](../mcp_servers/filing/README.md).
+
+## Pharos vs THESEE vs Signal Spam
+
+- **THESEE** — online *plainte* for internet scams (preferred for sextortion).
+- **Pharos** — report illicit online *content* to OCLCTIC; not the main path for inbox spam.
+- **Signal Spam** — bulk spam corpus / plugins; separate from a criminal complaint.

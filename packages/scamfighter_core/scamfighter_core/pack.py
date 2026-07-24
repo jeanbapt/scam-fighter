@@ -8,13 +8,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from scamfighter_core.email_ingest import ParsedEmail, defang, parse_eml_bytes
+from scamfighter_core.mail_source import read_message_file
 from scamfighter_core.pipeline import Analysis, analyze
+from scamfighter_core.provenance import (
+    ProvenanceReport,
+    enrich,
+    format_provenance_markdown,
+)
 from scamfighter_core.vault import EvidenceVault, VaultObject
 
 
@@ -35,7 +42,7 @@ def _mask_email(addr: str) -> str:
     local, _, domain = addr.partition("@")
     if len(local) <= 2:
         return f"*@{domain}"
-    return f"{local[0]}…{local[-1]}@{domain}"
+    return f"{local[0]}...{local[-1]}@{domain}"
 
 
 def _case_id(sha256: str, parsed: ParsedEmail) -> str:
@@ -239,14 +246,34 @@ def _write_manifest(pack_dir: Path) -> Path:
     return out
 
 
+def _message_id_domain(message_id: str) -> str | None:
+    mid = message_id.strip().strip("<>")
+    if "@" not in mid:
+        return None
+    return mid.rsplit("@", 1)[-1].lower()
+
+
+def _connecting_ip(parsed: ParsedEmail) -> str | None:
+    """SMTP client-ip as seen by the receiving MX (SPF / Auth-Results)."""
+    for key in ("Received-SPF", "Authentication-Results"):
+        raw = parsed.headers.get(key) or ""
+        m = re.search(r"client-ip=([0-9.]+)", raw, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    if parsed.indicators.public_ips:
+        return parsed.indicators.public_ips[0]
+    return None
+
+
 def build_pack(
     eml_path: Path,
     *,
     vault: EvidenceVault,
     packs_root: Path,
+    enrich_provenance: bool = True,
 ) -> EvidencePack:
     """Analyse an ``.eml``, store it in the vault, and write a FR/EN complaint pack."""
-    raw = eml_path.read_bytes()
+    raw = read_message_file(eml_path)
     obj: VaultObject = vault.put_eml(raw, source_name=eml_path.name)
     parsed = parse_eml_bytes(raw)
     analysis = analyze(parsed)
@@ -258,6 +285,27 @@ def build_pack(
     if not msg_dest.exists():
         shutil.copy2(obj.path, msg_dest)
 
+    provenance: ProvenanceReport | None = None
+    connecting = _connecting_ip(parsed)
+    if enrich_provenance:
+        mid_domain = _message_id_domain(parsed.message_id)
+        provenance = enrich(
+            ips=list(analysis.public_ips),
+            domains=[mid_domain] if mid_domain else [],
+            bitcoin=list(analysis.bitcoin_addresses),
+            connecting_ip=connecting,
+        )
+        (pack_dir / "provenance.json").write_text(
+            json.dumps(provenance.to_dict(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (pack_dir / "provenance_en.md").write_text(
+            format_provenance_markdown(provenance, lang="en"), encoding="utf-8"
+        )
+        (pack_dir / "provenance_fr.md").write_text(
+            format_provenance_markdown(provenance, lang="fr"), encoding="utf-8"
+        )
+
     meta = {
         "case_id": case_id,
         "sha256": obj.sha256,
@@ -265,6 +313,7 @@ def build_pack(
         "vault_path": str(obj.path),
         "stored_at": obj.stored_at,
         "already_in_vault": obj.already_present,
+        "connecting_ip": connecting,
         "analysis": {
             "verdict": analysis.verdict,
             "confidence": analysis.confidence,
@@ -283,6 +332,7 @@ def build_pack(
         },
         "from_masked": _mask_email(analysis.from_addr),
         "generated_at": datetime.now(UTC).isoformat(),
+        "provenance_notes": list(provenance.notes) if provenance else [],
     }
     (pack_dir / "meta.json").write_text(
         json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -300,6 +350,7 @@ def build_pack(
 
 - FR complaint draft: `complaint_fr.md`
 - EN complaint draft: `complaint_en.md`
+- Provenance (RDAP/DNS/BTC): `provenance_en.md` / `provenance_fr.md` / `provenance.json`
 - Original message: `message.eml` (SHA-256 `{obj.sha256}`)
 - IOCs: `iocs.txt`
 - Filing guide: see repo `docs/FILING.md` (OVH abuse + THESEE / French authorities)

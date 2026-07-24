@@ -11,7 +11,7 @@ def test_build_pack_writes_fr_en_and_manifest(tmp_path: Path):
     eml = tmp_path / "sample.eml"
     eml.write_bytes(FIXTURE.read_bytes())
 
-    pack = build_pack(eml, vault=vault, packs_root=packs)
+    pack = build_pack(eml, vault=vault, packs_root=packs, enrich_provenance=False)
     assert pack.analysis.verdict == "sextortion"
     assert (pack.directory / "complaint_fr.md").exists()
     assert (pack.directory / "complaint_en.md").exists()
