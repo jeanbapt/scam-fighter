@@ -14,7 +14,7 @@ Phase 1 sources, all read-only, ordered by least privilege (see
   granting FDA to your daily terminal/IDE.
 
 All yield :class:`~scamfighter_core.email_ingest.ParsedEmail`. None fetch URLs or
-open attachments.
+open attachments. Symlinks are never followed; oversized files are skipped.
 """
 
 from __future__ import annotations
@@ -24,7 +24,14 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from scamfighter_core.email_ingest import ParsedEmail, parse_eml
+from scamfighter_core.email_ingest import ParsedEmail, parse_eml_bytes
+
+# Refuse to load a single message larger than this (DoS bound).
+MAX_MESSAGE_BYTES = 25 * 1024 * 1024
+
+
+class MessageTooLarge(OSError):
+    """Raised when a message file exceeds :data:`MAX_MESSAGE_BYTES`."""
 
 
 @runtime_checkable
@@ -36,32 +43,56 @@ class MailSource(Protocol):
         ...
 
 
-def parse_emlx(raw: bytes) -> str:
-    """Extract the RFC 822 message from Apple Mail's ``.emlx`` framing.
+def parse_emlx(raw: bytes) -> bytes:
+    """Extract the RFC 822 message bytes from Apple Mail's ``.emlx`` framing.
 
     An ``.emlx`` file is: a first line with the message byte count, then exactly
     that many bytes of the raw message, then an Apple plist of flags. We return
-    just the message text.
+    just the message bytes so charset headers are preserved for
+    :func:`~scamfighter_core.email_ingest.parse_eml_bytes`.
     """
     newline = raw.find(b"\n")
     if newline == -1:
-        return raw.decode("utf-8", errors="replace")
+        return raw
     header = raw[:newline].strip()
     try:
         count = int(header)
     except ValueError:
         # Not framed (already a plain message) — return as-is.
-        return raw.decode("utf-8", errors="replace")
-    message = raw[newline + 1 : newline + 1 + count]
-    return message.decode("utf-8", errors="replace")
+        return raw
+    return raw[newline + 1 : newline + 1 + count]
 
 
-def read_message_file(path: Path) -> str:
-    """Read a ``.eml`` (raw RFC 822) or ``.emlx`` (Apple-framed) message file."""
+def _check_size(path: Path) -> None:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise MessageTooLarge(f"cannot stat {path}: {exc}") from exc
+    if size > MAX_MESSAGE_BYTES:
+        raise MessageTooLarge(f"message exceeds {MAX_MESSAGE_BYTES} bytes: {path} ({size})")
+
+
+def read_message_file(path: Path) -> bytes:
+    """Read a ``.eml`` or ``.emlx`` file as raw RFC 822 bytes (size-capped)."""
+    _check_size(path)
     raw = path.read_bytes()
     if path.suffix.lower() == ".emlx":
         return parse_emlx(raw)
-    return raw.decode("utf-8", errors="replace")
+    return raw
+
+
+def _is_safe_under(root: Path, candidate: Path) -> bool:
+    """True when ``candidate`` is a real file under ``root`` (no symlink escape)."""
+    try:
+        if candidate.is_symlink():
+            return False
+        if not candidate.is_file():
+            return False
+        resolved = candidate.resolve()
+        root_resolved = root.resolve()
+        return resolved == root_resolved or root_resolved in resolved.parents
+    except OSError:
+        return False
 
 
 class FolderSource:
@@ -69,6 +100,9 @@ class FolderSource:
 
     You decide what lands in the folder (drag from Mail, a Mail rule, an export),
     so no macOS Full Disk Access or account credentials are needed.
+
+    Symlinks are skipped and resolved paths must stay under ``path`` so a planted
+    link cannot exfiltrate arbitrary files into the parser.
     """
 
     def __init__(self, path: Path, *, recursive: bool = True) -> None:
@@ -81,9 +115,12 @@ class FolderSource:
         seen: set[Path] = set()
         for pattern in ("*.eml", "*.emlx"):
             for p in self._glob(pattern):
-                if p.is_file() and p not in seen:
-                    seen.add(p)
-        yield from sorted(seen)
+                if p in seen:
+                    continue
+                if not _is_safe_under(self.path, p):
+                    continue
+                seen.add(p)
+                yield p
 
     def iter_parsed(self, *, limit: int | None = None) -> Iterator[ParsedEmail]:
         count = 0
@@ -92,9 +129,9 @@ class FolderSource:
                 return
             try:
                 message = read_message_file(path)
-            except OSError:
+                yield parse_eml_bytes(message)
+            except (OSError, ValueError, TypeError, UnicodeError):
                 continue
-            yield parse_eml(message)
             count += 1
 
 
@@ -122,7 +159,9 @@ class MacMailSource:
         self.root = resolved
 
     def iter_emlx_paths(self) -> Iterator[Path]:
-        yield from sorted(self.root.rglob("*.emlx"))
+        for p in sorted(self.root.rglob("*.emlx")):
+            if _is_safe_under(self.root, p):
+                yield p
 
     def iter_parsed(self, *, limit: int | None = None) -> Iterator[ParsedEmail]:
         count = 0
@@ -130,10 +169,11 @@ class MacMailSource:
             if limit is not None and count >= limit:
                 return
             try:
+                _check_size(path)
                 message = parse_emlx(path.read_bytes())
-            except OSError:
+                yield parse_eml_bytes(message)
+            except (OSError, ValueError, TypeError, UnicodeError):
                 continue
-            yield parse_eml(message)
             count += 1
 
 
@@ -173,7 +213,12 @@ class ImapSource:
                     continue
                 raw = msg_data[0][1]
                 if isinstance(raw, bytes):
-                    yield parse_eml(raw.decode("utf-8", errors="replace"))
+                    if len(raw) > MAX_MESSAGE_BYTES:
+                        continue
+                    try:
+                        yield parse_eml_bytes(raw)
+                    except (ValueError, TypeError, UnicodeError):
+                        continue
         finally:
             try:
                 conn.close()
