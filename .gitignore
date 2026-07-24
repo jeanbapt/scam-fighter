@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+ENV/
+env/
+.python-version
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.cache/
+cover/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Local runtime data (vault lives at repo root ./evidence, not mcp_servers/evidence)
+/data/
+*.db
+*.sqlite
+*.sqlite3
+/evidence/
+/vault/
+/logs/
+*.log
+/tmp/
+/temp/
+.local/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.cursor/
+!.cursor/rules/
+
+# SBOM / security scan outputs (CI artifacts)
+sbom*.json
+sbom*.spdx*
+*.sarif
+
+# Node (future Web UI)
+node_modules/
+.next/
+.nuxt/
+dist-web/
+
+# Misc
+*.bak
+*.orig
+.ipynb_checkpoints/
