@@ -17,14 +17,15 @@ Examples::
     python -m scamfighter_app ingest --source macmail --path "~/Library/Mail/V10"
 
     # Hands-off: watch the folder your Mail rule exports into, analyzing new
-    # drops as they arrive (Ctrl-C to stop).
-    python -m scamfighter_app watch
+    # drops as they arrive (Ctrl-C to stop). Optionally relocate processed files.
+    python -m scamfighter_app watch --move-processed
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
 import time
 from collections.abc import Iterator, Sequence
@@ -53,6 +54,7 @@ from scamfighter_core import (
 )
 
 DEFAULT_WATCH_FOLDER = Path.home() / "ScamFighter" / "inbox"
+DEFAULT_PROCESSED_FOLDER = Path.home() / "ScamFighter" / "processed"
 
 
 def build_source(args: argparse.Namespace) -> MailSource:
@@ -167,6 +169,30 @@ def _report(
     return analysis.is_sextortion
 
 
+def _resolve_move_processed(args: argparse.Namespace) -> Path | None:
+    """Return destination dir when ``--move-processed`` is set, else None."""
+    value = getattr(args, "move_processed", None)
+    if value is None:
+        return None
+    return Path(os.path.expanduser(str(value)))
+
+
+def _move_processed(path: Path, dest_dir: Path) -> Path:
+    """Move ``path`` into ``dest_dir``, disambiguating name collisions."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / path.name
+    if target.exists():
+        stem, suffix = path.stem, path.suffix
+        n = 1
+        while True:
+            candidate = dest_dir / f"{stem}-{n}{suffix}"
+            if not candidate.exists():
+                target = candidate
+                break
+            n += 1
+    return Path(shutil.move(str(path), str(target)))
+
+
 def run_ingest(args: argparse.Namespace, *, out=sys.stdout) -> int:
     source = build_source(args)
     router = build_router(escalate=args.escalate, audit_out=out) if args.summarize else None
@@ -203,8 +229,11 @@ def run_watch(
     folder = Path(os.path.expanduser(args.path)) if args.path else DEFAULT_WATCH_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     router = build_router(escalate=args.escalate, audit_out=out) if args.summarize else None
+    move_to = _resolve_move_processed(args)
 
     print(f"Watching {folder} (Ctrl-C to stop)...", file=out)
+    if move_to is not None:
+        print(f"Processed files will move to {move_to}", file=out)
     out.flush()
 
     processed: set[Path] = set()
@@ -240,6 +269,16 @@ def run_watch(
                     errors += 1
                     stamp = time.strftime("%H:%M:%S")
                     print(f"[{stamp}] {path.name}: skipped ({exc})", file=out)
+                if move_to is not None:
+                    try:
+                        _move_processed(path, move_to)
+                    except OSError as exc:
+                        print(f"    move failed: {exc}", file=out)
+                        processed.add(path)
+                    else:
+                        pending_size.pop(path, None)
+                        # File left the inbox; no need to keep it in `processed`.
+                        continue
                 out.flush()
                 processed.add(path)
                 pending_size.pop(path, None)
@@ -303,6 +342,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--escalate",
         action="store_true",
         help="use guarded cloud LLM (through ShieldFlow) instead of local",
+    )
+    watch.add_argument(
+        "--move-processed",
+        nargs="?",
+        const=str(DEFAULT_PROCESSED_FOLDER),
+        default=None,
+        metavar="DIR",
+        help="after analysis, move the file out of the watch folder "
+        f"(default DIR: {DEFAULT_PROCESSED_FOLDER})",
     )
     watch.set_defaults(func=run_watch)
     return parser
