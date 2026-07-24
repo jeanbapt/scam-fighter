@@ -42,6 +42,12 @@ secrets/
 /samples/
 !tests/fixtures/**/*.eml
 
+# ShieldFlow trust material must never be committed (CA keys, control token).
+.shieldflow/
+*sf-ca-bundle.pem
+*mitmproxy-ca*.pem
+proxy_env.sh
+
 # Local runtime data (vault lives at repo root ./evidence, not mcp_servers/evidence)
 /data/
 *.db

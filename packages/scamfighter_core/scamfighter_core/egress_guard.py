@@ -17,11 +17,16 @@ Layers:
 * :class:`DeterministicRedactor` — always available, no model. Reliably masks
   structured PII (emails, IPs, crypto addresses, URLs, phone-like numbers). It does
   NOT understand free-text PII (names, addresses) and does NOT detect injection.
-* :class:`ShieldFlowGuard` — adapter for LiquidAI ShieldFlow (on-device PII
-  redaction + prompt-injection blocking). Requires access; inject a client
-  callable. Unconfigured, it fails closed.
+* :class:`CallableSemanticGuard` — generic in-process semantic guard adapter for a
+  model that redacts free-text PII and/or detects injection (e.g. Microsoft
+  Presidio or OpenAI Privacy Filter). Inject a client callable; unconfigured it
+  fails closed.
 * :class:`CompositeEgressGuard` — chains guards; in ``strict`` mode it refuses to
-  clear text unless a semantic guard (e.g. ShieldFlow) has vetted it.
+  clear text unless a semantic guard has vetted it.
+
+The primary semantic guard in this project is LiquidAI ShieldFlow, which runs as a
+local egress proxy rather than an in-process call — see
+:mod:`scamfighter_core.shieldflow`.
 """
 
 from __future__ import annotations
@@ -109,10 +114,11 @@ class DeterministicRedactor:
 
 
 @dataclass(frozen=True)
-class ShieldFlowResponse:
-    """Normalized response from a ShieldFlow client.
+class SemanticGuardResponse:
+    """Normalized response from an in-process semantic guard model.
 
-    Adapt LiquidAI's actual client output into this shape when wiring the model.
+    Adapt a model's actual output (Presidio, OpenAI Privacy Filter, ...) into this
+    shape when wiring it.
     """
 
     redacted_text: str
@@ -120,19 +126,22 @@ class ShieldFlowResponse:
     injection_detected: bool = False
 
 
-# Operator-supplied callable that runs ShieldFlow on-device and returns a response.
-ShieldFlowClient = Callable[[str], ShieldFlowResponse]
+# Operator-supplied callable that runs a semantic guard on-device.
+SemanticGuardClient = Callable[[str], SemanticGuardResponse]
 
 
-class ShieldFlowGuard:
-    """Adapter for LiquidAI ShieldFlow (on-device PII redaction + injection block).
+class CallableSemanticGuard:
+    """Generic adapter for an in-process semantic guard model.
 
-    ShieldFlow is access-gated; supply a client callable once you have it. With no
-    client the guard **fails closed** (blocks), so escalation never silently
-    downgrades to weaker protection.
+    Use for free-text PII (names, addresses) and/or injection detection when the
+    guard is a Python-callable model. With no client it **fails closed** (blocks),
+    so escalation never silently downgrades to weaker protection.
+
+    (LiquidAI ShieldFlow is not wired here — it runs as a proxy; see
+    :mod:`scamfighter_core.shieldflow`.)
     """
 
-    def __init__(self, client: ShieldFlowClient | None = None) -> None:
+    def __init__(self, client: SemanticGuardClient | None = None) -> None:
         self._client = client
 
     def inspect(self, text: str) -> GuardVerdict:
@@ -140,7 +149,7 @@ class ShieldFlowGuard:
             return GuardVerdict(
                 allowed=False,
                 text=text,
-                reason="ShieldFlow not configured (fail closed)",
+                reason="semantic guard not configured (fail closed)",
             )
         resp = self._client(text)
         return GuardVerdict(

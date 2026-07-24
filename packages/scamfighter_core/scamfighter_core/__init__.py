@@ -6,14 +6,14 @@ SGRS (or any other engine) can be added later as an adapter behind
 """
 
 from scamfighter_core.egress_guard import (
+    CallableSemanticGuard,
     CompositeEgressGuard,
     DeterministicRedactor,
     EgressBlocked,
     EgressGuard,
     GuardVerdict,
-    ShieldFlowClient,
-    ShieldFlowGuard,
-    ShieldFlowResponse,
+    SemanticGuardClient,
+    SemanticGuardResponse,
     guard_cloud_egress,
 )
 from scamfighter_core.email_ingest import (
@@ -33,11 +33,20 @@ from scamfighter_core.governance import (
     Transition,
     UnauthorizedTransition,
 )
+from scamfighter_core.shieldflow import (
+    ShieldFlowConfig,
+    ShieldFlowGuard,
+    httpx_transport,
+    is_active,
+    load_config,
+    requests_transport,
+)
 
 __all__ = [
     "ApprovalDecision",
     "AuditEvent",
     "AuthResults",
+    "CallableSemanticGuard",
     "CaseState",
     "CompositeEgressGuard",
     "DeterministicRedactor",
@@ -49,12 +58,17 @@ __all__ = [
     "Indicators",
     "LocalGovernance",
     "ParsedEmail",
-    "ShieldFlowClient",
+    "SemanticGuardClient",
+    "SemanticGuardResponse",
+    "ShieldFlowConfig",
     "ShieldFlowGuard",
-    "ShieldFlowResponse",
     "Transition",
     "UnauthorizedTransition",
     "defang",
     "guard_cloud_egress",
+    "httpx_transport",
+    "is_active",
+    "load_config",
     "parse_eml",
+    "requests_transport",
 ]

@@ -41,10 +41,11 @@ These must be **architecturally impossible**, not merely discouraged:
 
 - **Local by default.** Email content is processed on-device with edge models.
 - **No silent cloud offload.** Cloud LLM escalation is opt-in per case; it moves
-  PII off-device and must be a deliberate operator choice. Every cloud-bound string
-  passes through the fail-closed **egress guard** (`scamfighter_core.egress_guard`),
-  which redacts PII on-device before anything leaves the machine (LiquidAI
-  ShieldFlow as the semantic guard, plus deterministic redaction).
+  PII off-device and must be a deliberate operator choice. Cloud calls route
+  through the LiquidAI ShieldFlow local proxy, which tokenizes PII in transit, and
+  are gated by the fail-closed **egress guard** (`scamfighter_core.egress_guard` +
+  `scamfighter_core.shieldflow`), backed by deterministic in-process redaction. If
+  ShieldFlow is not active, cloud egress is blocked.
 - **Minimize and retain deliberately.** Store what evidence requires, with a
   documented retention policy; support redaction of third-party PII in outbound
   reports where it is not needed by the recipient.
