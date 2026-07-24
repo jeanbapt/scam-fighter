@@ -8,9 +8,10 @@ surfaces — pick the least-privilege one that fits.
 
 | Method | macOS permission | Surface | When |
 |--------|------------------|---------|------|
-| **Folder / drop** (`--source folder`) | none | Only the files you place there | **Recommended default.** Export just the suspect emails |
+| **Mail rule -> AppleScript** (auto-export to folder) | **none** | Only messages the rule matched | **Recommended.** Convenient *and* safe |
+| **On-demand AppleScript** (export selection) | Automation (Apple Events) for Mail | Scripting Mail only | Occasional manual exports |
+| **Folder / drop** (`--source folder`) | none | Only the files you place there | Manual drag/export from Mail |
 | **IMAP** (`--source imap`) | none (uses app password) | One mailbox over the network | Server runs; no local Mail access |
-| **AppleScript/JXA** | Automation (Apple Events) for Mail | Scripting Mail only | Occasional, low-fidelity |
 | **`.emlx` store, dedicated signed helper** | Full Disk Access on the helper | All TCC data, but only that helper | High-fidelity reads, contained |
 | **`.emlx` store via your terminal/IDE** (`--source macmail`) | Full Disk Access on terminal/IDE | **All** TCC data for anything that terminal runs | Quick local experiment only |
 
@@ -18,22 +19,53 @@ surfaces — pick the least-privilege one that fits.
 > CLI, that's your terminal/IDE, not the script). Granting it to a general-purpose
 > terminal exposes Mail, Messages, Safari history, other apps' containers and
 > backups to any code that terminal ever runs. For a tool that handles hostile
-> content and worries about malicious dependencies, that is a poor default. Prefer
-> the folder or IMAP source; use FDA only via a dedicated signed helper if you
-> truly need the raw store.
+> content and worries about malicious dependencies, that is a poor default.
 
-### Recommended: folder / drop source (no special permission)
+## Recommended: a Mail rule that auto-exports (convenient + safe)
 
-Export the suspicious messages out of Mail (select messages -> drag to a Finder
-folder, or File -> Save As; or a Mail rule that copies matches to a folder), then:
+This gives you the convenience of "Mail just works" without granting any broad
+permission and without configuring IMAP. The trick: a **Mail rule** runs an
+AppleScript action *inside Mail's own process*, so it needs **no Full Disk Access
+and triggers no Automation prompt**. The script only ever sees the messages your
+rule matched, and writes them to `~/ScamFighter/inbox` — a folder you own that is
+not TCC-protected. ScamFighter then reads that folder with `--source folder`.
+
+Setup (once):
+
+1. Open [`tools/macos/scamfighter-mail-rule.applescript`](../tools/macos/scamfighter-mail-rule.applescript)
+   in Script Editor.
+2. In Mail: **Settings -> Rules -> Add Rule**, choose the action **Run AppleScript**,
+   click the script dropdown and pick **Open in Finder** — this opens
+   `~/Library/Application Scripts/com.apple.mail/`. Save the script there as a
+   `.scpt`, then select it in the rule.
+3. Set the rule's conditions (e.g. *Subject contains* "RECORDED", or route your
+   Junk mailbox). Click **OK**. Optionally select messages and choose
+   **Apply Rules** to backfill existing mail.
+
+Then analyze, with **no special permission**:
 
 ```bash
 export PYTHONPATH=packages/scamfighter_core:apps/scamfighter
-uv run python -m scamfighter_app ingest --source folder --path ~/scam-inbox
+uv run python -m scamfighter_app ingest --source folder            # reads ~/ScamFighter/inbox
+uv run python -m scamfighter_app ingest --source folder --summarize
 ```
 
-You control exactly what lands in that folder, so ScamFighter only ever sees the
-emails you chose to hand it — nothing else on disk.
+### On-demand alternative (export what you selected)
+
+If you'd rather export manually, use
+[`tools/macos/scamfighter-export-selection.applescript`](../tools/macos/scamfighter-export-selection.applescript):
+select the suspect messages in Mail and run it from Script Editor or the Script
+menu. The only prompt is a one-time, revocable "control Mail" (Automation)
+consent — scoped to Mail, never disk-wide.
+
+### Plain drop folder (no scripting)
+
+You can always drag messages from Mail to a Finder folder (or File -> Save As),
+then point ScamFighter at it:
+
+```bash
+uv run python -m scamfighter_app ingest --source folder --path ~/scam-inbox
+```
 
 ## Reading the on-disk store directly (advanced)
 

@@ -5,12 +5,16 @@ cloud through the guarded, ShieldFlow-protected path when explicitly asked.
 
 Examples::
 
-    # Analyze Apple Mail locally (needs Full Disk Access; see docs/MACOS_MAIL.md)
-    python -m scamfighter_app ingest --source macmail --limit 20
+    # Recommended: read the watch folder a Mail rule exports into (no macOS
+    # permission needed at all; see docs/MACOS_MAIL.md). Defaults to
+    # ~/ScamFighter/inbox.
+    python -m scamfighter_app ingest --source folder
 
-    # Point at a specific mailbox and draft local summaries for scam hits
-    python -m scamfighter_app ingest --source macmail --path "~/Library/Mail/V10" \
-        --summarize
+    # Draft local summaries for scam hits
+    python -m scamfighter_app ingest --source folder --summarize
+
+    # Advanced: read Apple Mail's on-disk store (needs Full Disk Access)
+    python -m scamfighter_app ingest --source macmail --path "~/Library/Mail/V10"
 """
 
 from __future__ import annotations
@@ -41,12 +45,19 @@ from scamfighter_core import (
     summarize,
 )
 
+DEFAULT_WATCH_FOLDER = Path.home() / "ScamFighter" / "inbox"
+
 
 def build_source(args: argparse.Namespace) -> MailSource:
     if args.source == "folder":
-        if not args.path:
-            raise SystemExit("--source folder requires --path <dir>")
-        return FolderSource(Path(os.path.expanduser(args.path)))
+        path = Path(os.path.expanduser(args.path)) if args.path else DEFAULT_WATCH_FOLDER
+        if not path.exists():
+            raise SystemExit(
+                f"watch folder not found: {path}\n"
+                "Create it and export mail into it, or set up the Mail rule "
+                "described in docs/MACOS_MAIL.md (no Full Disk Access needed)."
+            )
+        return FolderSource(path)
     if args.source == "macmail":
         root = Path(os.path.expanduser(args.path)) if args.path else None
         return MacMailSource(root=root)
@@ -138,7 +149,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ingest.add_argument(
         "--path",
-        help="folder of .eml/.emlx (folder), or mailbox root e.g. ~/Library/Mail/V10 (macmail)",
+        help="folder of .eml/.emlx (folder; default ~/ScamFighter/inbox) "
+        "or mailbox root e.g. ~/Library/Mail/V10 (macmail)",
     )
     ingest.add_argument("--limit", type=int, default=50)
     ingest.add_argument("--all", action="store_true", help="show non-scam messages too")
