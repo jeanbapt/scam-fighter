@@ -14,6 +14,7 @@ from scamfighter_core.egress_guard import (
     GuardVerdict,
     SemanticGuardClient,
     SemanticGuardResponse,
+    egress_audit_record,
     guard_cloud_egress,
 )
 from scamfighter_core.email_ingest import (
@@ -102,6 +103,7 @@ __all__ = [
     "analyze",
     "defang",
     "default_mac_mail_root",
+    "egress_audit_record",
     "guard_cloud_egress",
     "html_to_text",
     "httpx_transport",

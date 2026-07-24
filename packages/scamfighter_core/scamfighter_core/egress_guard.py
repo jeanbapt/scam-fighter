@@ -193,12 +193,35 @@ class CompositeEgressGuard:
         return verdict
 
 
-def guard_cloud_egress(text: str, guard: EgressGuard) -> str:
+def egress_audit_record(verdict: GuardVerdict) -> dict[str, object]:
+    """Labels-only record of what a guard decided — never includes text content.
+
+    Safe to log or append to an audit trail when cloud escalation runs.
+    """
+    return {
+        "allowed": verdict.allowed,
+        "findings": list(verdict.findings),
+        "injection_detected": verdict.injection_detected,
+        "semantic_pii_checked": verdict.semantic_pii_checked,
+        "reason": verdict.reason,
+    }
+
+
+def guard_cloud_egress(
+    text: str,
+    guard: EgressGuard,
+    *,
+    audit: Callable[[dict[str, object]], None] | None = None,
+) -> str:
     """Return redacted text safe to send to the cloud, or raise :class:`EgressBlocked`.
 
     This is the single call sites should use before any cloud LLM request.
+    When ``audit`` is provided it receives a labels-only
+    :func:`egress_audit_record` (never the text) for every inspection.
     """
     verdict = guard.inspect(text)
+    if audit is not None:
+        audit(egress_audit_record(verdict))
     if not verdict.allowed:
         raise EgressBlocked(verdict.reason or "egress guard blocked the request")
     return verdict.text
