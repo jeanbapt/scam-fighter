@@ -1,6 +1,7 @@
 import pytest
 from scamfighter_core import (
     ApprovalDecision,
+    AuditTampered,
     CaseState,
     Governance,
     LocalGovernance,
@@ -63,3 +64,34 @@ def test_audit_log_is_hash_chained():
     assert len(log) == 2
     assert log[0].prev_hash == "0" * 64
     assert log[1].prev_hash == log[0].this_hash
+    assert gov.verify_chain(case) is True
+
+
+def test_persist_and_reload_audit(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    gov = LocalGovernance(audit_path=path)
+    case = "persist-1"
+    _advance(gov, case, CaseState.ANALYZED, CaseState.EVIDENCED)
+    gov.record_approval(ApprovalDecision(case_id=case, approved=True, approver="human"))
+    assert path.exists()
+
+    reloaded = LocalGovernance(audit_path=path)
+    assert reloaded.current_state(case) == CaseState.EVIDENCED
+    assert reloaded.verify_chain(case) is True
+    assert len(reloaded.audit_log(case)) == 3
+    decision = reloaded.require_approval(case)
+    assert decision.approved is True
+    assert decision.approver == "human"
+
+
+def test_tampered_audit_fails_closed(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    gov = LocalGovernance(audit_path=path)
+    case = "tamper-1"
+    _advance(gov, case, CaseState.ANALYZED)
+    # Corrupt a persisted hash so reload must refuse to start.
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[0] = lines[0].replace(gov.audit_log(case)[0].this_hash, "0" * 64)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(AuditTampered):
+        LocalGovernance(audit_path=path)

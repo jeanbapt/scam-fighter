@@ -20,6 +20,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -57,6 +58,10 @@ class GovernanceError(Exception):
 
 class UnauthorizedTransition(GovernanceError):
     """Raised when a state transition is not permitted."""
+
+
+class AuditTampered(GovernanceError):
+    """Raised when a persisted audit chain fails verification."""
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,30 @@ class AuditEvent:
         )
         return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "case_id": self.case_id,
+            "kind": self.kind,
+            "payload": self.payload,
+            "at": self.at.isoformat(),
+            "prev_hash": self.prev_hash,
+            "this_hash": self.this_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> AuditEvent:
+        payload = data["payload"]
+        if not isinstance(payload, dict):
+            raise AuditTampered("audit payload must be an object")
+        return cls(
+            case_id=str(data["case_id"]),
+            kind=str(data["kind"]),
+            payload={str(k): str(v) for k, v in payload.items()},
+            at=datetime.fromisoformat(str(data["at"])),
+            prev_hash=str(data["prev_hash"]),
+            this_hash=str(data["this_hash"]),
+        )
+
 
 @runtime_checkable
 class Governance(Protocol):
@@ -139,31 +168,97 @@ class Governance(Protocol):
 class LocalGovernance:
     """Dependency-free Phase 1 governance backend.
 
-    Keeps an in-memory, hash-chained audit log and a validated state machine.
-    Swap for a durable backend (SQLite) or an SGRS adapter without changing
-    callers.
+    Keeps a hash-chained audit log and a validated state machine. Pass
+    ``audit_path`` to persist events as append-only JSONL; on init the file is
+    loaded and :meth:`verify_chain` must succeed (fail closed on tamper).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, audit_path: Path | None = None) -> None:
         self._state: dict[str, CaseState] = {}
         self._approvals: dict[str, ApprovalDecision] = {}
         self._audit: dict[str, list[AuditEvent]] = {}
+        self._audit_path = audit_path
+        if audit_path is not None:
+            self._load_audit(audit_path)
 
     def _append_audit(self, case_id: str, kind: str, payload: dict[str, str]) -> None:
         chain = self._audit.setdefault(case_id, [])
         prev_hash = chain[-1].this_hash if chain else "0" * 64
         at = datetime.now(UTC)
         this_hash = AuditEvent.compute_hash(case_id, kind, payload, at, prev_hash)
-        chain.append(
-            AuditEvent(
-                case_id=case_id,
-                kind=kind,
-                payload=payload,
-                at=at,
-                prev_hash=prev_hash,
-                this_hash=this_hash,
-            )
+        event = AuditEvent(
+            case_id=case_id,
+            kind=kind,
+            payload=payload,
+            at=at,
+            prev_hash=prev_hash,
+            this_hash=this_hash,
         )
+        chain.append(event)
+        if self._audit_path is not None:
+            self._persist_event(event)
+
+    def _persist_event(self, event: AuditEvent) -> None:
+        assert self._audit_path is not None
+        self._audit_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._audit_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event.to_dict(), sort_keys=True) + "\n")
+
+    def _load_audit(self, path: Path) -> None:
+        if not path.exists():
+            return
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise AuditTampered(f"cannot read audit log: {exc}") from exc
+        for line_no, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                data = json.loads(line)
+                if not isinstance(data, dict):
+                    raise AuditTampered(f"line {line_no}: expected object")
+                event = AuditEvent.from_dict(data)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                raise AuditTampered(f"line {line_no}: corrupt audit record ({exc})") from exc
+            self._audit.setdefault(event.case_id, []).append(event)
+            self._replay_event(event)
+        for case_id in self._audit:
+            if not self.verify_chain(case_id):
+                raise AuditTampered(f"audit chain failed verification for case {case_id}")
+
+    def _replay_event(self, event: AuditEvent) -> None:
+        """Rebuild in-memory state/approvals from a persisted event."""
+        if event.kind == "transition":
+            to_raw = event.payload.get("to")
+            if to_raw:
+                try:
+                    self._state[event.case_id] = CaseState(to_raw)
+                except ValueError:
+                    raise AuditTampered(f"unknown state in audit: {to_raw}") from None
+        elif event.kind == "approval":
+            approved = event.payload.get("approved", "").lower() == "true"
+            self._approvals[event.case_id] = ApprovalDecision(
+                case_id=event.case_id,
+                approved=approved,
+                approver=event.payload.get("approver", ""),
+                at=event.at,
+            )
+
+    def verify_chain(self, case_id: str) -> bool:
+        """Recompute the hash chain; return False if any link is broken."""
+        chain = self._audit.get(case_id, [])
+        expected_prev = "0" * 64
+        for event in chain:
+            if event.prev_hash != expected_prev:
+                return False
+            recomputed = AuditEvent.compute_hash(
+                event.case_id, event.kind, event.payload, event.at, event.prev_hash
+            )
+            if recomputed != event.this_hash:
+                return False
+            expected_prev = event.this_hash
+        return True
 
     def propose_transition(self, transition: Transition) -> None:
         current = self._state.get(transition.case_id, CaseState.INGESTED)

@@ -29,6 +29,7 @@ from scamfighter_core.email_ingest import (
 from scamfighter_core.governance import (
     ApprovalDecision,
     AuditEvent,
+    AuditTampered,
     CaseState,
     Governance,
     GovernanceError,
@@ -72,6 +73,7 @@ __all__ = [
     "Analysis",
     "ApprovalDecision",
     "AuditEvent",
+    "AuditTampered",
     "AuthResults",
     "CallableSemanticGuard",
     "CaseState",
