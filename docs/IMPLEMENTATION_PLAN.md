@@ -73,11 +73,28 @@ In `strict` mode (`CompositeEgressGuard(strict=True)`), deterministic redaction
 alone is **not** sufficient to clear text for the cloud — a semantic guard must
 vet it. Use `guard_cloud_egress(text, guard)` at every cloud call site.
 
-**Chosen semantic guard: LiquidAI ShieldFlow.** ShieldFlow is an on-device privacy
-layer that redacts PII *and blocks prompt injection* before a prompt leaves the
-machine — it covers both of our egress risks in one edge model. Access is granted
-for this project. Wire it via `ShieldFlowGuard(client)`, adapting LiquidAI's client
-output into `ShieldFlowResponse`; unconfigured, `ShieldFlowGuard` fails closed.
+**Chosen semantic guard: LiquidAI ShieldFlow (local egress proxy).** ShieldFlow
+installs as a **local MITM proxy** (loopback port + CA bundle), not an in-process
+library. It tokenizes PII in outbound LLM API traffic (reversible-by-default) for
+many providers (OpenAI, Anthropic, Azure, Bedrock, Groq, Mistral, OpenRouter,
+Perplexity, DeepSeek, GitHub Models, Cursor, ...) per its synced policy, and blocks
+prompt injection — covering both egress risks on the wire.
+
+Integration (`scamfighter_core.shieldflow`):
+
+- `load_config()` discovers the proxy URL + CA bundle from the environment or
+  `~/.shieldflow/proxy_env.sh` (no secrets read).
+- `is_active(cfg)` health-checks the proxy (reachable port + fresh heartbeat).
+- `httpx_transport(cfg)` / `requests_transport(cfg)` return the kwargs to route a
+  cloud LLM client through ShieldFlow (proxy + CA bundle) — **required** for the
+  tokenization to actually apply.
+- `ShieldFlowGuard.discover()` is the `EgressGuard`: it certifies protection is
+  live (`semantic_pii_checked=True`) or **fails closed** if the proxy is down. It
+  does not alter text; redaction happens in transit.
+
+Because protection is at the transport layer, the rule is: **route every cloud LLM
+call through `httpx_transport`/`requests_transport`, and gate it with the composite
+guard.** Deterministic in-process redaction remains an independent second layer.
 
 LiquidAI PII lineup for reference:
 

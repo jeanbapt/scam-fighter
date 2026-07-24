@@ -28,10 +28,14 @@ reports. It must be hardened as both a **malware-handling tool** and a
   untrusted; parsers are fuzzed; fail closed.
 - **Injection resistance.** LLM inputs are scam text; use fixed typed tool schemas
   (no model-authored code execution) to blunt prompt-injection into actions.
-- **Guarded cloud egress.** Before any content reaches a cloud LLM it passes
-  through the fail-closed egress guard (`scamfighter_core.egress_guard`), which
-  both redacts PII and blocks prompt injection on-device (LiquidAI ShieldFlow).
-  If the guard cannot vouch for the text, it is not sent.
+- **Guarded cloud egress.** Cloud LLM calls route through the LiquidAI ShieldFlow
+  local proxy (tokenizes PII in transit, blocks prompt injection) and are gated by
+  the fail-closed egress guard (`scamfighter_core.egress_guard` +
+  `scamfighter_core.shieldflow`). If ShieldFlow is not active, or a semantic guard
+  cannot vouch for the text, it is not sent. Deterministic in-process redaction is
+  an independent second layer.
+- **ShieldFlow trust material stays out of the repo.** Its CA bundle, control
+  token, and proxy config live under `~/.shieldflow/` and are never committed.
 
 ### Preventing unsafe actions
 - Observe-only by default; `mail-actions` disabled unless mode + governance allow.
