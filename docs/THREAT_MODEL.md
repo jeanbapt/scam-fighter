@@ -28,6 +28,10 @@ reports. It must be hardened as both a **malware-handling tool** and a
   untrusted; parsers are fuzzed; fail closed.
 - **Injection resistance.** LLM inputs are scam text; use fixed typed tool schemas
   (no model-authored code execution) to blunt prompt-injection into actions.
+- **Guarded cloud egress.** Before any content reaches a cloud LLM it passes
+  through the fail-closed egress guard (`scamfighter_core.egress_guard`), which
+  both redacts PII and blocks prompt injection on-device (LiquidAI ShieldFlow).
+  If the guard cannot vouch for the text, it is not sent.
 
 ### Preventing unsafe actions
 - Observe-only by default; `mail-actions` disabled unless mode + governance allow.

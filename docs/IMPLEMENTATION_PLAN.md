@@ -53,34 +53,43 @@ Candidate edge models (all on-device, permissive-until-scale license): LiquidAI
 LFM2.5-350M / 1.2B for reasoning; LFM2.5-Embedding-350M or ColBERT-350M for
 similarity clustering; small Qwen/Gemma/Phi as alternates via Ollama.
 
-### PII out-filter for cloud escalation
+### Cloud egress guard (PII + prompt injection)
 
-Cloud escalation must never leak PII (see `docs/LEGAL.md`: no silent cloud
-offload). Before any content leaves the device, it passes through a **PII
-out-filter** that redacts personal data, and it **fails closed** — if redaction
-cannot be confirmed, the content is not sent.
+Cloud escalation must never leak PII (`docs/LEGAL.md`: no silent cloud offload),
+and the scam body is attacker-controlled text, so escalating it is also a
+prompt-injection vector (`docs/THREAT_MODEL.md`). Both risks share one chokepoint:
+the **egress guard** every cloud-bound string passes through. It **fails closed** —
+if the guard cannot vouch for the text, it is not sent.
 
-Design it as a pluggable `PiiFilter` boundary (same pattern as `Governance`), with
-two layers:
+Implemented in `scamfighter_core.egress_guard` as a pluggable `EgressGuard`
+boundary (same pattern as `Governance`) with two layers:
 
-1. **Deterministic redaction first** (100% reliable for structured PII): emails,
-   phone numbers, IPs, crypto addresses, URLs — we already extract these in
-   `scamfighter_core.email_ingest`.
-2. **Model redaction second** for free-text PII (names, addresses).
+1. **`DeterministicRedactor`** (always on, no model): reliably masks structured PII
+   — emails, phone-like numbers, IPs, crypto addresses, URLs. It never claims to
+   cover free-text PII or injection (`semantic_pii_checked=False`).
+2. **Semantic guard** for free-text PII (names, addresses) and injection detection.
 
-What LiquidAI proposes today (edge-native, on-brand for this project):
+In `strict` mode (`CompositeEgressGuard(strict=True)`), deterministic redaction
+alone is **not** sufficient to clear text for the cloud — a semantic guard must
+vet it. Use `guard_cloud_egress(text, guard)` at every cloud call site.
 
-| Option | Status | Fit as out-filter |
-|--------|--------|-------------------|
-| **ShieldFlow (LFM PII)** | Access-gated ("Request access"), commercial | Their purpose-built PII guard; closest match, but gating conflicts with an open repo — evaluate only if the gate is acceptable |
-| **LFM2-350M-PII-Extract-JP** | Open weights (HF + GGUF), 350M | **Japanese only** today — not usable for English/multilingual sextortion mail |
-| **LFM2-350M/1.2B-Extract** | Deprecated | Superseded by VL-Extract; general extraction, not a redactor |
+**Chosen semantic guard: LiquidAI ShieldFlow.** ShieldFlow is an on-device privacy
+layer that redacts PII *and blocks prompt injection* before a prompt leaves the
+machine — it covers both of our egress risks in one edge model. Access is granted
+for this project. Wire it via `ShieldFlowGuard(client)`, adapting LiquidAI's client
+output into `ShieldFlowResponse`; unconfigured, `ShieldFlowGuard` fails closed.
 
-Because LiquidAI's open PII model is JP-only and ShieldFlow is gated, the Phase 1
-default is: **deterministic redaction + an open-weight English PII model**
-(e.g. OpenAI Privacy Filter open weights, or Presidio) behind the `PiiFilter`
-interface, with ShieldFlow / a future open LFM2 English PII model as swappable
-adapters. Monitor LiquidAI for an open, non-JP PII release.
+LiquidAI PII lineup for reference:
+
+| Option | Status | Role here |
+|--------|--------|-----------|
+| **ShieldFlow (LFM PII)** | Access-gated; access obtained | **Primary semantic egress guard** (PII + injection) |
+| **LFM2-350M-PII-Extract-JP** | Open weights (HF + GGUF), 350M | Japanese-only; use only for JP mail |
+| **LFM2-350M/1.2B-Extract** | Deprecated | Not a redactor |
+
+Fallback semantic guards (swappable behind `EgressGuard`) if ShieldFlow is
+unavailable in a given deployment: OpenAI Privacy Filter (open weights) or
+Microsoft Presidio.
 
 ## Workstreams
 
