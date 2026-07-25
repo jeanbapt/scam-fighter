@@ -1,0 +1,33 @@
+{
+  "campaigns": {
+    "github_notifications": 13,
+    "health_insurance_spam": 2,
+    "i_recorded_you_sextortion_bot": 47,
+    "linkedin_newsletter": 1,
+    "sofinco_espace_client_phishing": 2,
+    "vernimmen_newsletter": 1
+  },
+  "example_count": 66,
+  "files": {
+    "train_jsonl": "datasets/email_abuse/train.jsonl",
+    "whitelist": "/Users/jeanbapt/GitHub/scamfighter/datasets/email_abuse/whitelist.json"
+  },
+  "generated_at": "2026-07-25T15:36:46.560179+00:00",
+  "labels": {
+    "benign_noise": 15,
+    "phishing": 2,
+    "sextortion": 47,
+    "spam": 2
+  },
+  "notes": [
+    "PII scrubbed (emails \u2192 redacted@example.com; personal domain fragments masked).",
+    "Use split_group for group-aware train/test splits (bot waves stay together).",
+    "label is the training target; detector_verdict is the rule-based teacher signal."
+  ],
+  "packs_root": "/Users/jeanbapt/ScamFighter/packs",
+  "whitelist": [
+    "github_notifications",
+    "linkedin_newsletter",
+    "vernimmen_newsletter"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "description": "Campaign ids labeled benign_noise for training (canvas whitelist analogue).",
+  "campaigns": [
+    "vernimmen_newsletter",
+    "linkedin_newsletter",
+    "github_notifications"
+  ]
+}
