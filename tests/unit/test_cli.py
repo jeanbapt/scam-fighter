@@ -31,7 +31,9 @@ def test_watch_processes_existing_drop(tmp_path: Path):
     inbox.mkdir()
     (inbox / "mail-1.eml").write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
 
-    args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])
+    args = _build_parser().parse_args(
+        ["watch", "--path", str(inbox), "--interval", "0", "--no-pack"]
+    )
     out = io.StringIO()
     # A file needs one tick to be seen and one to be confirmed stable, so run a
     # few iterations with a no-op sleep.
@@ -49,7 +51,9 @@ def test_watch_survives_poison_message(tmp_path: Path):
     (inbox / "poison.eml").write_bytes(b"\xff\xfe\x00not-a-valid-message")
     (inbox / "good.eml").write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
 
-    args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])
+    args = _build_parser().parse_args(
+        ["watch", "--path", str(inbox), "--interval", "0", "--no-pack"]
+    )
     out = io.StringIO()
     rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=4)
     text = out.getvalue()
@@ -60,7 +64,9 @@ def test_watch_survives_poison_message(tmp_path: Path):
 
 def test_watch_creates_missing_folder(tmp_path: Path):
     inbox = tmp_path / "does-not-exist-yet"
-    args = _build_parser().parse_args(["watch", "--path", str(inbox), "--interval", "0"])
+    args = _build_parser().parse_args(
+        ["watch", "--path", str(inbox), "--interval", "0", "--no-pack"]
+    )
     out = io.StringIO()
     rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=1)
     assert rc == 0
@@ -83,6 +89,7 @@ def test_watch_move_processed(tmp_path: Path):
             "0",
             "--move-processed",
             str(processed),
+            "--no-pack",
         ]
     )
     out = io.StringIO()
@@ -91,6 +98,45 @@ def test_watch_move_processed(tmp_path: Path):
     assert not src.exists()
     assert (processed / "mail-1.eml").exists()
     assert processed.is_dir()
+
+
+def test_watch_packs_on_detect(tmp_path: Path):
+    from unittest.mock import patch
+
+    from scamfighter_core import build_pack as real_build_pack
+
+    inbox = tmp_path / "inbox"
+    vault_dir = tmp_path / "evidence"
+    packs = tmp_path / "packs"
+    inbox.mkdir()
+    (inbox / "mail-1.eml").write_bytes(FIXTURE.read_bytes())
+
+    args = _build_parser().parse_args(
+        [
+            "watch",
+            "--path",
+            str(inbox),
+            "--interval",
+            "0",
+            "--pack",
+            "--vault",
+            str(vault_dir),
+            "--packs",
+            str(packs),
+        ]
+    )
+    out = io.StringIO()
+
+    def _pack(path, *, vault, packs_root, enrich_provenance=True):
+        return real_build_pack(
+            path, vault=vault, packs_root=packs_root, enrich_provenance=False
+        )
+
+    with patch("scamfighter_app.cli.build_pack", side_effect=_pack):
+        rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=3)
+    assert rc == 0
+    assert "[pack]" in out.getvalue()
+    assert any(packs.iterdir())
 
 
 def test_main_requires_command():

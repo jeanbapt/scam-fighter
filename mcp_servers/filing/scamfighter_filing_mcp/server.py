@@ -19,6 +19,7 @@ if str(_CORE) not in sys.path:
 
 from scamfighter_core.dnsbl import enrich_dnsbl  # noqa: E402
 from scamfighter_core.filing import (  # noqa: E402
+    CONFIRM_PHRASE,
     confirm_action,
     draft_abuse_mailto,
     form_fill_plan,
@@ -45,7 +46,7 @@ def build_mcp_server() -> Any:
 
     @mcp.tool()
     def load_evidence_pack(path_or_case_id: str) -> str:
-        """Load a ScamFighter evidence pack by directory path or case_id."""
+        """Load a pack by case_id or path under SCAMFIGHTER_PACKS only."""
         return _tool_result(load_pack(path_or_case_id).to_dict())
 
     @mcp.tool()
@@ -66,13 +67,13 @@ def build_mcp_server() -> Any:
         return _tool_result(request_spamhaus_submit(pack, reason=reason[:255]))
 
     @mcp.tool()
-    def confirm_filing_action(approval_token: str) -> str:
-        """Human confirmation gate — required before any submit_* tool."""
-        return _tool_result(confirm_action(approval_token))
+    def confirm_filing_action(approval_token: str, confirmation: str) -> str:
+        """Confirm a pending submit. confirmation must be exactly I_CONFIRM_SUBMIT."""
+        return _tool_result(confirm_action(approval_token, confirmation=confirmation))
 
     @mcp.tool()
     def submit_spamhaus_raw_email(approval_token: str, dry_run: bool = True) -> str:
-        """POST to Spamhaus after confirm. dry_run=True (default) does not contact Spamhaus."""
+        """POST to Spamhaus after confirm. Live submit needs SCAMFIGHTER_ALLOW_LIVE_SUBMIT=1."""
         return _tool_result(submit_spamhaus_email(approval_token, dry_run=dry_run))
 
     @mcp.tool()
@@ -80,6 +81,11 @@ def build_mcp_server() -> Any:
         """Field map for OVH / Pharos / THESEE / Signal Spam (Playwright assist; no auto-submit)."""
         pack = load_pack(path_or_case_id)
         return _tool_result(form_fill_plan(channel, pack))
+
+    @mcp.tool()
+    def filing_confirm_phrase() -> str:
+        """Return the exact confirmation phrase humans must type for confirm_filing_action."""
+        return _tool_result({"confirmation_phrase": CONFIRM_PHRASE})
 
     return mcp
 

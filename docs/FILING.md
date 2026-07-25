@@ -104,7 +104,8 @@ usually decoys, not the attacker’s host.
 | THESEE | form + FranceConnect | form plan assist only (human login) |
 | Signal Spam (consumer) | UI / plugins | form plan |
 
-Filing MCP setup: [mcp_servers/filing/README.md](../mcp_servers/filing/README.md).
+Filing MCP setup: [mcp_servers/filing/README.md](../mcp_servers/filing/README.md).  
+**Drive it with an LLM** (Cursor / Claude prompts, gates, dry-run): [MCP_FILING.md](MCP_FILING.md).
 
 ## Pharos vs THESEE vs Signal Spam
 

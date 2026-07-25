@@ -3,6 +3,9 @@
 Observe-first MCP for evidence packs: DNSBL lookup, abuse mailto drafts,
 Spamhaus Submission Portal (confirm-gated), and form field maps for Playwright.
 
+**How to drive this with an LLM (prompts, gates, Cursor / Claude setup):**  
+→ **[docs/MCP_FILING.md](../../docs/MCP_FILING.md)**
+
 ## Tools
 
 | Tool | Network | Notes |
@@ -11,9 +14,10 @@ Spamhaus Submission Portal (confirm-gated), and form field maps for Playwright.
 | `enrich_ip_dnsbl` | DNS only | Spamhaus ZEN + Barracuda |
 | `draft_mailto` | no | Writes `draft_mailto_*.eml` in the pack |
 | `request_spamhaus_raw_email` | no | Returns approval token |
-| `confirm_filing_action` | no | Human gate |
-| `submit_spamhaus_raw_email` | HTTPS if `dry_run=false` | Needs `SPAMHAUS_API_TOKEN` |
+| `confirm_filing_action` | no | Requires `confirmation="I_CONFIRM_SUBMIT"` |
+| `submit_spamhaus_raw_email` | HTTPS if live | Needs confirm + `dry_run=false` + `SCAMFIGHTER_ALLOW_LIVE_SUBMIT=1` |
 | `get_form_fill_plan` | no | `ovh_abuse` / `pharos` / `thesee` / `signal_spam` |
+| `filing_confirm_phrase` | no | Returns the exact confirm string |
 
 **Never auto-submits browser forms.** Pair form plans with Playwright MCP; THESEE
 FranceConnect stays human.
@@ -37,7 +41,8 @@ FranceConnect stays human.
       "env": {
         "PYTHONPATH": "/ABSOLUTE/PATH/TO/scamfighter/packages/scamfighter_core",
         "SCAMFIGHTER_PACKS": "/Users/YOU/ScamFighter/packs",
-        "SPAMHAUS_API_TOKEN": ""
+        "SPAMHAUS_API_TOKEN": "",
+        "SCAMFIGHTER_ALLOW_LIVE_SUBMIT": ""
       }
     }
   }

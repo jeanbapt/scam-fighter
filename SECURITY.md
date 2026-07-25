@@ -29,6 +29,10 @@ ScamFighter never fetches URLs from scam mail, never executes or renders
 attachments, and parses all input as hostile. If you find a way to make it do
 otherwise, that is a security bug — please report it.
 
+Live third-party submits (e.g. Spamhaus) require an explicit confirmation phrase
+**and** `SCAMFIGHTER_ALLOW_LIVE_SUBMIT=1`. Bypassing either without a clear
+operator intent is also a security bug.
+
 ## Supply-chain expectations
 
 - Signed commits and reviewed PRs on `main`.

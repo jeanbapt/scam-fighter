@@ -1,110 +1,102 @@
 # ScamFighter
 
-**A governed, defensive abuse-response and evidence toolkit for email extortion scams.**
+**Governed, defensive abuse-response toolkit for email extortion scams.**
 
 ScamFighter helps individuals and small teams respond *lawfully* to mass-extortion
-email campaigns — the "I RECORDED YOU" / sextortion class and its relatives. It
-does not attack anyone. It turns an incoming scam into structured, court-credible
-evidence and routes standards-based abuse reports to the parties who are actually
-allowed to act: email providers, hosting providers, domain registrars, national
-CERTs, and law enforcement.
+email (the “I RECORDED YOU” / sextortion class and relatives). It does not attack
+anyone. It turns an incoming scam into structured evidence and prepares filings
+for parties who may act: mailbox hosts, network `abuse@` contacts, Spamhaus, and
+national complaint channels (e.g. THESEE in France).
 
 > Defensive intermediary, not vigilante. No hack-back. Observe-only by default.
 
-## What it does
+## What works today
 
-- **Ingest** scam mail from IMAP (local-first, read-only by default).
-- **Analyze** the campaign: classify the scam type, verify SPF/DKIM/DMARC, extract
-  indicators (crypto addresses, URLs, sender infrastructure).
-- **Cluster** related messages to see the campaign, not just one email.
-- **Build immutable evidence**: original `.eml`, full headers, hashes, chain of
-  custody, trusted timestamps.
-- **Propose** defensive actions (label/quarantine your own mail; draft abuse
-  reports) — never executed without an approval and a governed state transition.
-- **Report** in formats the recipients already ingest: ARF / X-ARF, STIX 2.1,
-  RDAP-routed `abuse@` referrals, and templated law-enforcement submissions.
+- **Ingest** from a drop folder (Mail rule / export — least privilege), optional IMAP, or Apple Mail store (advanced; Full Disk Access).
+- **Deterministic analysis**: sextortion classifier, SPF/DKIM/DMARC, BTC / IP / URL IOCs.
+- **Watch folder**: poll inbox → analyze → optional evidence pack → move to processed.
+- **Write-once vault** (SHA-256) + **FR/EN complaint packs** with provenance (RDAP / DNS / BTC).
+- **Filing MCP** (observe-first): DNSBL lookup, mailto drafts, confirm-gated Spamhaus prepare; form field maps for OVH / Pharos / THESEE (no auto-submit).
 
 ## What it will never do
 
-- No unauthorized access to any system ("hack-back") — see [`docs/LEGAL.md`](docs/LEGAL.md).
+- No unauthorized access to third-party systems (“hack-back”) — see [`docs/LEGAL.md`](docs/LEGAL.md).
 - No harassment or automated engagement with scammers.
-- No silent exfiltration of email content to the cloud — see privacy in [`docs/LEGAL.md`](docs/LEGAL.md).
+- No silent cloud offload of mailbox content — local-first; cloud LLM only behind ShieldFlow when you opt in.
 
 ## Why it is safe by design
 
-Every side-effecting action passes through a **governance boundary** (validated
-state machine + approval gate + tamper-evident audit log). Phase 1 ships a
-dependency-free `LocalGovernance`; other engines can be added as adapters without
-touching agents or connectors. See [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md).
-
-## Models: edge-first
-
-This is a text-classification + indicator-extraction + clustering problem, so it
-runs on **small local models** by default (privacy, cost, reproducibility). Cloud
-models are opt-in escalation for the hard minority of cases only. See
-[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md#models).
+Side effects that leave the machine go through governance / explicit operator gates
+(local audit, confirm phrases, env opt-in for live submits). Hostile mail is parsed
+without fetching body URLs or executing attachments. See
+[`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) and [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ## Stack
 
 - Python 3.13+, `uv`
-- PydanticAI (typed agents) with an edge-first provider router
-- MCP servers (stdio, local-first) for capability isolation
-- SQLite + append-only filesystem evidence vault
+- `scamfighter_core` library + `scamfighter_app` CLI
+- Optional MCP (`mcp_servers/filing`) for model-assisted filing prep
+- Filesystem evidence vault under `~/ScamFighter/` (gitignored)
 
 ## Repository layout
 
 ```
-apps/           # runnable application(s)
-packages/       # shared libraries (scamfighter_core: models + governance)
-mcp_servers/    # filing (+ placeholders: mail-read, mail-actions, evidence, reporting, threat-intel)
+apps/           # CLI (ingest / watch / pack)
+packages/       # scamfighter_core
+mcp_servers/    # filing MCP (+ placeholders)
 policies/       # governance policies
-schemas/        # strict YAML + Pydantic schemas
-docs/           # architecture, governance, legal, threat model, plan
-tests/          # unit, integration, e2e
+schemas/        # schemas
+docs/           # architecture, legal, filing, threat model
+tests/          # unit tests + sanitized fixtures
 ```
 
-## Quickstart (developers)
+## Quickstart
 
 ```bash
 cp .env.example .env
-uv run --with pytest pytest -q      # run the test suite
-
-# Apple Mail, the safe way: a Mail rule auto-exports matches into ~/ScamFighter/inbox
-# (no Full Disk Access, no IMAP; see docs/MACOS_MAIL.md), then:
 export PYTHONPATH=packages/scamfighter_core:apps/scamfighter
+
+uv run --with pytest pytest -q
+uv run --with ruff ruff check packages apps tests mcp_servers/filing
+uv run --with mypy mypy packages/scamfighter_core/scamfighter_core apps/scamfighter/scamfighter_app
+
+# Analyze Mail-rule exports (no Full Disk Access):
 uv run python -m scamfighter_app ingest --source folder
 
-# Or leave a hands-off watcher running that analyzes new drops in real time:
-uv run python -m scamfighter_app watch --move-processed
+# Hands-off watcher (detect → analyze → pack → move):
+uv run python -m scamfighter_app watch --move-processed --pack
 
-# Build a write-once vault object + FR/EN complaint pack (see docs/FILING.md):
+# Pack only:
 uv run python -m scamfighter_app pack --path ~/ScamFighter/processed
-
-# Or read Apple Mail's on-disk store directly (advanced; needs Full Disk Access)
-uv run python -m scamfighter_app ingest --source macmail --limit 50
 ```
 
-See [docs/MACOS_MAIL.md](docs/MACOS_MAIL.md) for running on top of macOS Mail.
-See [docs/FILING.md](docs/FILING.md) for OVH abuse + French THESEE / police filing.
-See [mcp_servers/filing/README.md](mcp_servers/filing/README.md) for the observe-first filing MCP
-(DNSBL, mailto drafts, confirm-gated Spamhaus submit, Playwright form plans).
+macOS Mail setup: [docs/MACOS_MAIL.md](docs/MACOS_MAIL.md)  
+Filing channels: [docs/FILING.md](docs/FILING.md)  
+LLM + filing MCP: [docs/MCP_FILING.md](docs/MCP_FILING.md)  
+MCP install: [mcp_servers/filing/README.md](mcp_servers/filing/README.md)
 
 ## Documentation
 
-- [PRD](PRD.md)
-- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
-- [Running on macOS Mail](docs/MACOS_MAIL.md)
-- [Filing to OVH + French authorities](docs/FILING.md)
-- [Governance model](docs/GOVERNANCE.md)
-- [Legal basis and boundaries](docs/LEGAL.md)
-- [Threat model](docs/THREAT_MODEL.md)
-- [Security policy](SECURITY.md) | [Contributing](CONTRIBUTING.md) | [Code of Conduct](CODE_OF_CONDUCT.md)
+| Doc | Topic |
+|-----|--------|
+| [PRD.md](PRD.md) | Product intent |
+| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Roadmap |
+| [docs/MACOS_MAIL.md](docs/MACOS_MAIL.md) | Apple Mail (least privilege first) |
+| [docs/FILING.md](docs/FILING.md) | OVH, THESEE, APIs vs forms |
+| [docs/MCP_FILING.md](docs/MCP_FILING.md) | LLM + filing MCP how-to |
+| [docs/GOVERNANCE.md](docs/GOVERNANCE.md) | Approval / audit boundary |
+| [docs/LEGAL.md](docs/LEGAL.md) | Legal posture |
+| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | Threat model |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 
 ## Status
 
-Pre-implementation (Phase 1 in progress). Contributions welcome under an
-open-contribution, gated-trust model — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Active development (Phase 1). Core ingest / watch / vault / pack / filing helpers
+are usable locally. Broader agents, ARF/STIX exporters, and clustering are on the
+roadmap — see the PRD and implementation plan.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 ScamFighter contributors
