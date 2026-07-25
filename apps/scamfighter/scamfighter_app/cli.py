@@ -127,7 +127,12 @@ def build_router(*, escalate: bool, audit_out: TextIO | None = None) -> Provider
 
 
 def _format(analysis: Analysis) -> str:
-    tag = {"sextortion": "[SCAM]", "suspicious": "[?]", "unknown": "[ ]"}[analysis.verdict]
+    tag = {
+        "sextortion": "[SCAM]",
+        "phishing": "[SCAM]",
+        "suspicious": "[?]",
+        "unknown": "[ ]",
+    }.get(analysis.verdict, "[?]")
     lines = [
         f"{tag} {analysis.verdict} ({analysis.confidence:.2f}) | {analysis.subject}",
         (
@@ -139,6 +144,8 @@ def _format(analysis: Analysis) -> str:
             f"(all_failing={analysis.auth_all_failing})"
         ),
     ]
+    if analysis.irregularities:
+        lines.append(f"    headers: {', '.join(analysis.irregularities)}")
     if analysis.bitcoin_addresses:
         lines.append(f"    btc: {', '.join(analysis.bitcoin_addresses)}")
     if analysis.public_ips:
@@ -157,7 +164,7 @@ def _report(
     out: TextIO,
     prefix: str = "",
 ) -> bool:
-    """Analyze one message, print it if noteworthy, return whether it was sextortion.
+    """Analyze one message, print it if noteworthy, return whether it was a scam hit.
 
     Any unexpected exception is caught by the caller; this helper itself only
     fails on programming errors.
@@ -173,7 +180,7 @@ def _report(
                 print(f"    summary: {summary}", file=out)
             except Exception as exc:
                 print(f"    summary: [failed: {exc}]", file=out)
-    return analysis.is_sextortion
+    return analysis.is_scam
 
 
 def _resolve_move_processed(args: argparse.Namespace) -> Path | None:
@@ -215,7 +222,7 @@ def run_ingest(args: argparse.Namespace, *, out: TextIO = sys.stdout) -> int:
             errors += 1
             print(f"[error] skipped message: {exc}", file=out)
     suffix = f" ({errors} error(s))." if errors else "."
-    print(f"\nProcessed {total} message(s); {scams} sextortion hit(s){suffix}", file=out)
+    print(f"\nProcessed {total} message(s); {scams} scam hit(s){suffix}", file=out)
     return 0
 
 
@@ -332,7 +339,7 @@ def run_watch(
         print(file=out)
     suffix = f" ({errors} error(s))." if errors else "."
     print(
-        f"Watched {folder}: processed {total} message(s); {scams} sextortion hit(s){suffix}",
+        f"Watched {folder}: processed {total} message(s); {scams} scam hit(s){suffix}",
         file=out,
     )
     return 0

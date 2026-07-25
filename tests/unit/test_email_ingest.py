@@ -67,6 +67,38 @@ def test_html_only_body_is_stripped_for_indicators():
     assert "1NBwsBzgJTX7KTAd8gZe53pLP73wtSEXDS" in parsed.indicators.bitcoin_addresses
 
 
+def test_html_href_urls_are_extracted_even_with_plain_twin():
+    # multipart/alternative: plain has no URL; phishing CTA is only in HTML href.
+    raw = (
+        b"From: support@evil.example\r\nTo: support@evil.example\r\n"
+        b"Subject: Espace Client\r\nMIME-Version: 1.0\r\n"
+        b'Content-Type: multipart/alternative; boundary="b"\r\n\r\n'
+        b"--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+        b"Me connecter\r\n"
+        b"--b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n"
+        b'<a href="https://track.example/click?u=https://phish.site/x">'
+        b"Me connecter</a>\r\n"
+        b"--b--\r\n"
+    )
+    parsed = parse_eml_bytes(raw)
+    assert any("track.example" in u for u in parsed.indicators.urls)
+
+
+def test_gmail_esmtps_timestamp_is_not_an_origin_ip():
+    raw = (
+        b"From: a@b.com\r\nTo: c@d.com\r\nSubject: x\r\n"
+        b"Received: from [192.168.0.151] ([105.74.2.100]) by smtp-relay.gmail.com "
+        b"with ESMTPS id abc.82.2026.07.24.20.49.45;\r\n"
+        b"Received: from mail-lj1-f232.google.com (mail-lj1-f232.google.com "
+        b"[209.85.208.232]) by mx;\r\n\r\n"
+        b"hello\r\n"
+    )
+    parsed = parse_eml_bytes(raw)
+    assert "105.74.2.100" in parsed.indicators.public_ips
+    assert "209.85.208.232" in parsed.indicators.public_ips
+    assert "07.24.20.49" not in parsed.indicators.public_ips
+
+
 def test_html_to_text_strips_tags():
     assert "hello" in html_to_text("<b>hello</b><script>evil()</script>")
     assert "evil()" not in html_to_text("<script>evil()</script>hi")

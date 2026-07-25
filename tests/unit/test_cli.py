@@ -23,7 +23,7 @@ def test_ingest_macmail_reports_scam(tmp_path: Path):
     text = out.getvalue()
     assert rc == 0
     assert "[SCAM] sextortion" in text
-    assert "1 sextortion hit" in text
+    assert "1 scam hit" in text
 
 
 def test_watch_processes_existing_drop(tmp_path: Path):
@@ -42,7 +42,7 @@ def test_watch_processes_existing_drop(tmp_path: Path):
     assert rc == 0
     assert "mail-1.eml" in text
     assert "[SCAM] sextortion" in text
-    assert "1 sextortion hit" in text
+    assert "1 scam hit" in text
 
 
 def test_watch_survives_poison_message(tmp_path: Path):

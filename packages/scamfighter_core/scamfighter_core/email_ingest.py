@@ -26,9 +26,13 @@ _MAX_RECEIVED_HEADERS = 64
 # Bounded quantifiers / character classes avoid catastrophic backtracking.
 _BTC_RE = re.compile(r"\b(?:bc1[ac-hj-np-z02-9]{11,71}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b")
 _URL_RE = re.compile(r"https?://[^\s<>\"')\]]{1,2048}", re.IGNORECASE)
-_IPV4_RE = re.compile(
-    r"\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\b"
-)
+# Octets without leading zeros — avoids Gmail ESMTPS ids like
+# ``…sm7718….2026.07.24.20.49.45`` matching as ``07.24.20.49``.
+_IPV4_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)"
+_IPV4_RE = re.compile(rf"\b(?:{_IPV4_OCTET}\.){{3}}{_IPV4_OCTET}\b")
+# SMTP Received convention: client address appears in square brackets.
+_BRACKET_IPV4_RE = re.compile(rf"\[((?:{_IPV4_OCTET}\.){{3}}{_IPV4_OCTET})\]")
+_HREF_ATTRS = frozenset({"href", "src", "action", "poster", "data", "formaction"})
 
 # Authentication-Results verdicts.
 _SPF_RE = re.compile(r"\bspf=(\w+)", re.IGNORECASE)
@@ -83,16 +87,29 @@ class ParsedEmail:
 
 
 class _HTMLTextExtractor(HTMLParser):
-    """Stdlib-only tag stripper: no rendering, no network, no JS."""
+    """Stdlib-only tag stripper: no rendering, no network, no JS.
+
+    Also collects ``http(s)`` URLs from link-like attributes (``href``/``src``/…),
+    because multipart/alternative mails often put the CTA only in the HTML part
+    while the text/plain twin has a bare label like "Me connecter".
+    """
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._chunks: list[str] = []
+        self._urls: list[str] = []
         self._skip = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"script", "style"}:
             self._skip = True
+            return
+        for name, value in attrs:
+            if name.lower() not in _HREF_ATTRS or not value:
+                continue
+            candidate = value.strip()
+            if candidate.lower().startswith(("http://", "https://")):
+                self._urls.append(candidate)
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"script", "style"}:
@@ -105,6 +122,13 @@ class _HTMLTextExtractor(HTMLParser):
     def text(self) -> str:
         return "\n".join(self._chunks)
 
+    def urls(self) -> tuple[str, ...]:
+        seen: list[str] = []
+        for url in self._urls:
+            if url not in seen:
+                seen.append(url)
+        return tuple(seen)
+
 
 def html_to_text(html: str) -> str:
     """Strip tags from HTML mail for indicator scanning (never fetch, never render)."""
@@ -115,6 +139,17 @@ def html_to_text(html: str) -> str:
     except Exception:
         return re.sub(r"<[^>]+>", " ", html)
     return parser.text()
+
+
+def html_urls(html: str) -> tuple[str, ...]:
+    """Collect ``http(s)`` URLs from HTML attributes only (never fetch)."""
+    parser = _HTMLTextExtractor()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:
+        return _dedupe(_URL_RE, html)
+    return parser.urls()
 
 
 def _addr(value: str | None) -> str:
@@ -139,8 +174,16 @@ def _is_private_ip(ip: str) -> bool:
 
 
 def _public_ips(text: str) -> tuple[str, ...]:
+    """Prefer bracketed IPs from the Received chain (SMTP convention).
+
+    Falling back to a free-text IPv4 scan still rejects leading-zero octets so
+    timestamp fragments inside Gmail ESMTPS ids are not treated as origins.
+    """
+    clipped = text[:_INDICATOR_SCAN_BYTES]
+    bracketed = _BRACKET_IPV4_RE.findall(clipped)
+    candidates = bracketed if bracketed else _IPV4_RE.findall(clipped)
     seen: list[str] = []
-    for ip in _IPV4_RE.findall(text[:_INDICATOR_SCAN_BYTES]):
+    for ip in candidates:
         if _is_private_ip(ip):
             continue
         if ip not in seen:
@@ -156,8 +199,12 @@ def _dedupe(pattern: re.Pattern[str], text: str) -> tuple[str, ...]:
     return tuple(seen)
 
 
-def _extract_body(msg: EmailMessage) -> str:
-    """Prefer text/plain; fall back to stripped text/html. Never render or fetch."""
+def _extract_body_and_html(msg: EmailMessage) -> tuple[str, tuple[str, ...]]:
+    """Prefer text/plain for body text; always return HTML parts for href scan.
+
+    Never render or fetch. HTML is kept even when plain exists because phishing
+    CTAs ("Me connecter") often live only in ``<a href=...>``.
+    """
     plain_parts: list[str] = []
     html_parts: list[str] = []
     if msg.is_multipart():
@@ -184,11 +231,12 @@ def _extract_body(msg: EmailMessage) -> str:
         elif content:
             plain_parts.append(content)
 
+    html = tuple(html_parts)
     if plain_parts:
-        return "\n".join(plain_parts)
-    if html_parts:
-        return html_to_text("\n".join(html_parts))
-    return ""
+        return "\n".join(plain_parts), html
+    if html:
+        return html_to_text("\n".join(html)), html
+    return "", ()
 
 
 def _from_message(msg: EmailMessage) -> ParsedEmail:
@@ -213,16 +261,22 @@ def _from_message(msg: EmailMessage) -> ParsedEmail:
         if len(received_list) >= _MAX_RECEIVED_HEADERS:
             break
     received = tuple(received_list)
-    body = _extract_body(msg)
+    body, html_parts = _extract_body_and_html(msg)
 
     from_addr = _addr(msg.get("From"))
     to_addr = _addr(msg.get("To"))
+
+    urls: list[str] = list(_dedupe(_URL_RE, body))
+    for blob in html_parts:
+        for url in html_urls(blob):
+            if url not in urls:
+                urls.append(url)
 
     # Origin IPs come from the Received chain only — not the whole raw message
     # (which would also pick up IPs quoted in the scam body).
     indicators = Indicators(
         bitcoin_addresses=_dedupe(_BTC_RE, body),
-        urls=_dedupe(_URL_RE, body),
+        urls=tuple(urls),
         public_ips=_public_ips("\n".join(received)),
     )
 

@@ -52,6 +52,73 @@ def _case_id(sha256: str, parsed: ParsedEmail) -> str:
     return f"{stamp}-{safe}-{sha256[:8]}"
 
 
+def _nature_fr(analysis: Analysis) -> str:
+    if analysis.verdict == "phishing":
+        return (
+            "Tentative de **hameçonnage / usurpation de marque** par e-mail "
+            "(nom d'affichage d'une institution, domaine From incongruent, "
+            "souvent un lien hors domaine). Ne pas cliquer ; ne pas saisir "
+            "d'identifiants."
+        )
+    if analysis.verdict == "sextortion":
+        return (
+            "Tentative de **chantage / sextorsion** par e-mail (menace de diffusion "
+            "d'enregistrements intimes et demande de paiement en cryptomonnaie). "
+            "Aucun paiement n'est recommandé ; ne pas répondre à l'expéditeur.\n\n"
+            "Qualification possible (à l'appréciation des autorités) : **chantage** "
+            "(articles 312-10 et suivants du Code pénal)."
+        )
+    return (
+        "Message **suspect** d'abus / fraude par e-mail. Vérifier les "
+        "irrégularités d'en-têtes ci-dessous avant toute démarche."
+    )
+
+
+def _key_point_fr(analysis: Analysis) -> str:
+    if analysis.verdict == "phishing":
+        return (
+            "**Point clé :** un SPF/DKIM/DMARC *pass* authentifie le *domaine "
+            "expéditeur*, pas la marque affichée. Un From « SOFINCO » depuis un "
+            "domaine tiers reste du phishing."
+        )
+    return (
+        "**Point clé :** l'affirmation « je vous ai écrit depuis votre propre "
+        "compte » est **contredite** par les résultats d'authentification "
+        "(SPF/DKIM/DMARC)."
+    )
+
+
+def _key_point_en(analysis: Analysis) -> str:
+    if analysis.verdict == "phishing":
+        return (
+            "**Key point:** SPF/DKIM/DMARC *pass* authenticates the *sending "
+            "domain*, not the display brand. “SOFINCO” from an unrelated domain "
+            "is still phishing."
+        )
+    return (
+        "**Key point:** the claim “I sent this from your own account” is "
+        "**debunked** by failed SPF/DKIM/DMARC authentication."
+    )
+
+
+def _nature_en(analysis: Analysis) -> str:
+    if analysis.verdict == "phishing":
+        return (
+            "Attempted **brand phishing / credential theft** by email "
+            "(trusted display name, incongruent From domain, often an "
+            "off-domain CTA). Do not click; do not enter credentials."
+        )
+    if analysis.verdict == "sextortion":
+        return (
+            "Attempted **sextortion / blackmail** by email (threat to release "
+            "intimate recordings and a cryptocurrency ransom demand). Do not "
+            "pay; do not reply."
+        )
+    return (
+        "**Suspicious** email-abuse message. Review the header irregularities below before filing."
+    )
+
+
 def _complaint_fr(
     *,
     parsed: ParsedEmail,
@@ -62,7 +129,11 @@ def _complaint_fr(
     btc = ", ".join(analysis.bitcoin_addresses) or "(aucun)"
     ips = ", ".join(analysis.public_ips) or "(aucun)"
     urls = ", ".join(defang(u) for u in analysis.urls) or "(aucune)"
-    return f"""# Plainte / signalement - chantage sextorsion par e-mail
+    title = {
+        "phishing": "hameçonnage / usurpation de marque",
+        "sextortion": "chantage sextorsion par e-mail",
+    }.get(analysis.verdict, "abus / fraude par e-mail")
+    return f"""# Plainte / signalement - {title}
 
 **Référence dossier ScamFighter :** `{case_id}`  
 **Date de constitution du pack :** {datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")}  
@@ -73,12 +144,7 @@ def _complaint_fr(
 
 ## Nature des faits
 
-Tentative de **chantage / sextorsion** par e-mail (menace de diffusion d'enregistrements
-intimes et demande de paiement en cryptomonnaie). Aucun paiement n'est recommandé ;
-ne pas répondre à l'expéditeur.
-
-Qualification possible (à l'appréciation des autorités) : **chantage**
-(articles 312-10 et suivants du Code pénal).
+{_nature_fr(analysis)}
 
 ## Éléments techniques vérifiables
 
@@ -94,13 +160,13 @@ Qualification possible (à l'appréciation des autorités) : **chantage**
 | DKIM | {analysis.dkim} |
 | DMARC | {analysis.dmarc} |
 | Auth. globalement en échec | {"oui" if analysis.auth_all_failing else "non"} |
+| Irrégularités d'en-têtes | {", ".join(analysis.irregularities) or "(aucune)"} |
 | Adresse(s) Bitcoin | `{btc}` |
 | IP d'origine (chaîne Received) | `{ips}` |
 | URL mentionnées (défanguées) | {urls} |
 | Verdict analyse | {analysis.verdict} (confiance {analysis.confidence}) |
 
-**Point clé :** l'affirmation « je vous ai écrit depuis votre propre compte » est
-**contredite** par les résultats d'authentification (SPF/DKIM/DMARC).
+{_key_point_fr(analysis)}
 
 ## Pièces jointes du pack
 
@@ -149,7 +215,11 @@ def _complaint_en(
     btc = ", ".join(analysis.bitcoin_addresses) or "(none)"
     ips = ", ".join(analysis.public_ips) or "(none)"
     urls = ", ".join(defang(u) for u in analysis.urls) or "(none)"
-    return f"""# Complaint / abuse report - email sextortion scam
+    title = {
+        "phishing": "brand phishing / credential theft",
+        "sextortion": "email sextortion scam",
+    }.get(analysis.verdict, "email abuse / fraud")
+    return f"""# Complaint / abuse report - {title}
 
 **ScamFighter case id:** `{case_id}`  
 **Pack generated (UTC):** {datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")}  
@@ -160,8 +230,7 @@ def _complaint_en(
 
 ## Nature of the offence
 
-Attempted **sextortion / blackmail** by email (threat to release intimate recordings
-and a cryptocurrency ransom demand). Do not pay; do not reply.
+{_nature_en(analysis)}
 
 ## Verifiable technical facts
 
@@ -177,13 +246,13 @@ and a cryptocurrency ransom demand). Do not pay; do not reply.
 | DKIM | {analysis.dkim} |
 | DMARC | {analysis.dmarc} |
 | Auth all failing | {"yes" if analysis.auth_all_failing else "no"} |
+| Header irregularities | {", ".join(analysis.irregularities) or "(none)"} |
 | Bitcoin address(es) | `{btc}` |
 | Origin IP(s) from Received | `{ips}` |
 | URLs mentioned (defanged) | {urls} |
 | Analysis verdict | {analysis.verdict} (confidence {analysis.confidence}) |
 
-**Key point:** the claim “I sent this from your own account” is **debunked** by
-failed SPF/DKIM/DMARC authentication.
+{_key_point_en(analysis)}
 
 ## Pack contents
 
@@ -329,6 +398,7 @@ def build_pack(
             "public_ips": list(analysis.public_ips),
             "urls_defanged": [defang(u) for u in analysis.urls],
             "matched_phrases": list(analysis.matched_phrases),
+            "irregularities": list(analysis.irregularities),
         },
         "from_masked": _mask_email(analysis.from_addr),
         "generated_at": datetime.now(UTC).isoformat(),
