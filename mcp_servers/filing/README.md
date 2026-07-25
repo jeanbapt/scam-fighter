@@ -40,7 +40,7 @@ FranceConnect stays human.
       "cwd": "/ABSOLUTE/PATH/TO/scamfighter/mcp_servers/filing",
       "env": {
         "PYTHONPATH": "/ABSOLUTE/PATH/TO/scamfighter/packages/scamfighter_core",
-        "SCAMFIGHTER_PACKS": "/Users/YOU/ScamFighter/packs",
+        "SCAMFIGHTER_PACKS": "/ABSOLUTE/PATH/TO/home/ScamFighter/packs",
         "SPAMHAUS_API_TOKEN": "",
         "SCAMFIGHTER_ALLOW_LIVE_SUBMIT": ""
       }

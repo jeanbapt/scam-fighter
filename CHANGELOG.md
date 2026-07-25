@@ -25,4 +25,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hostile-input bounds on ingest; packs-root containment for filing MCP.
 - Live Spamhaus submit requires `I_CONFIRM_SUBMIT` and `SCAMFIGHTER_ALLOW_LIVE_SUBMIT=1`.
 
-[0.1.0]: https://github.com/jeanbapt/scam-fighter/releases/tag/v0.1.0
+See the repository Releases page for tag `v0.1.0`.
