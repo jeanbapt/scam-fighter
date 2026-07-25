@@ -339,7 +339,9 @@ def submit_spamhaus_email(token: str, *, dry_run: bool = True) -> dict[str, Any]
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected
+        # Fixed https://submit.spamhaus.org endpoint; Bearer from env only.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected
+        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
             raw = resp.read().decode("utf-8")
             status = getattr(resp, "status", 200)
     except urllib.error.HTTPError as exc:

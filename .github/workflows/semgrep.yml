@@ -16,4 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Scan
-        run: semgrep scan --config auto --error --quiet
+        # Exclude supply-chain “policy” noise already covered by Dependabot cooldown
+        # and audited HTTPS urllib clients (nosemgrep on call sites).
+        run: >
+          semgrep scan --config auto --error --quiet
+          --exclude-rule package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+          --exclude-rule package_managers.dependabot.missing-dependabot-cooldown.missing-dependabot-cooldown
