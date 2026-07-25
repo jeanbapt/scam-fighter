@@ -20,6 +20,7 @@ from typing import Any
 # Spamhaus Submission Portal — raw email max 150 KiB per their docs.
 _SPAMHAUS_EMAIL_MAX = 150 * 1024
 _SPAMHAUS_BASE = "https://submit.spamhaus.org/portal/api/v1"
+CONFIRM_PHRASE = "I_CONFIRM_SUBMIT"
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,11 @@ class ApprovalGate:
         )
         return token
 
-    def confirm(self, token: str) -> dict[str, Any]:
+    def confirm(self, token: str, *, confirmation: str) -> dict[str, Any]:
+        if confirmation != CONFIRM_PHRASE:
+            raise PermissionError(
+                f"confirmation must be exactly {CONFIRM_PHRASE!r} (typed by a human)"
+            )
         item = self._require(token)
         item.confirmed = True
         return {"token": token, "action": item.action, "confirmed": True}
@@ -123,27 +128,37 @@ def resolve_packs_root(override: Path | None = None) -> Path:
     return (override or Path(raw)).expanduser().resolve()
 
 
+def _allow_absolute_pack() -> bool:
+    return os.environ.get("SCAMFIGHTER_PACKS_ALLOW_ABSOLUTE", "").strip() == "1"
+
+
+def _ensure_under_packs_root(pack_dir: Path, packs_root: Path) -> Path:
+    try:
+        pack_dir.relative_to(packs_root)
+    except ValueError as exc:
+        if _allow_absolute_pack():
+            return pack_dir
+        raise PermissionError(
+            f"pack path outside SCAMFIGHTER_PACKS ({packs_root}): {pack_dir}. "
+            "Set SCAMFIGHTER_PACKS_ALLOW_ABSOLUTE=1 to override (operator-only)."
+        ) from exc
+    return pack_dir
+
+
 def load_pack(path_or_case: str | Path) -> PackSnapshot:
     """Load an existing evidence pack by directory path or case_id under packs root."""
     packs_root = resolve_packs_root()
     raw = Path(path_or_case).expanduser()
     if raw.is_dir() and (raw / "meta.json").is_file():
-        # Operator-chosen absolute/relative directory that already looks like a pack.
-        pack_dir = raw.resolve()
+        pack_dir = _ensure_under_packs_root(raw.resolve(), packs_root)
     else:
         case = str(path_or_case)
         if "/" in case or "\\" in case or ".." in case or case in {".", ""}:
             raise ValueError(f"invalid case_id (path separators / '..' forbidden): {case!r}")
         candidate = (packs_root / case).resolve()
-        try:
-            candidate.relative_to(packs_root)
-        except ValueError as exc:
-            raise PermissionError(
-                f"case_id resolves outside packs root {packs_root}: {case!r}"
-            ) from exc
-        if not (candidate / "meta.json").is_file():
+        pack_dir = _ensure_under_packs_root(candidate, packs_root)
+        if not (pack_dir / "meta.json").is_file():
             raise FileNotFoundError(f"pack not found: {path_or_case}")
-        pack_dir = candidate
 
     meta = json.loads((pack_dir / "meta.json").read_text(encoding="utf-8"))
     if not isinstance(meta, dict):
@@ -279,15 +294,15 @@ def request_spamhaus_submit(pack: PackSnapshot, *, reason: str) -> dict[str, Any
     }
 
 
-def confirm_action(token: str) -> dict[str, Any]:
-    return approval_gate().confirm(token)
+def confirm_action(token: str, *, confirmation: str) -> dict[str, Any]:
+    return approval_gate().confirm(token, confirmation=confirmation)
 
 
 def submit_spamhaus_email(token: str, *, dry_run: bool = True) -> dict[str, Any]:
     """Submit to Spamhaus only after confirm.
 
-    Defaults to ``dry_run=True`` (observe-first). Pass ``dry_run=False`` for a live POST
-    (requires ``SPAMHAUS_API_TOKEN``).
+    Defaults to ``dry_run=True`` (observe-first). Live POST requires
+    ``dry_run=False`` **and** ``SCAMFIGHTER_ALLOW_LIVE_SUBMIT=1``.
     """
     payload = approval_gate().consume(token, expected_action="submit_spamhaus_email")
     if dry_run:
@@ -298,6 +313,11 @@ def submit_spamhaus_email(token: str, *, dry_run: bool = True) -> dict[str, Any]
             "reason": payload.get("reason"),
             "case_meta": payload.get("meta"),
         }
+    if os.environ.get("SCAMFIGHTER_ALLOW_LIVE_SUBMIT", "").strip() != "1":
+        raise PermissionError(
+            "live Spamhaus submit blocked: set SCAMFIGHTER_ALLOW_LIVE_SUBMIT=1 "
+            "in the environment (operator opt-in), then retry with dry_run=False"
+        )
     api_token = os.environ.get("SPAMHAUS_API_TOKEN", "").strip()
     if not api_token:
         raise RuntimeError("SPAMHAUS_API_TOKEN is not set")

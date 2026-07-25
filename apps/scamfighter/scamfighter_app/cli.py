@@ -232,21 +232,36 @@ def run_watch(
     to stop changing before reading it, so partially written exports are skipped
     until complete. A single poison/oversized message is logged and skipped — it
     never kills the watcher. Stop with Ctrl-C.
+
+    With ``--pack`` (default on), each successfully read message is also vaulted and
+    written as an evidence pack before optional relocate.
     """
     folder = Path(os.path.expanduser(args.path)) if args.path else DEFAULT_WATCH_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     router = build_router(escalate=args.escalate, audit_out=out) if args.summarize else None
     move_to = _resolve_move_processed(args)
+    do_pack = bool(getattr(args, "pack", True))
+    vault_root = Path(os.path.expanduser(getattr(args, "vault", str(DEFAULT_VAULT))))
+    packs_root = Path(os.path.expanduser(getattr(args, "packs", str(DEFAULT_PACKS))))
+    vault = EvidenceVault(vault_root) if do_pack else None
+    if do_pack:
+        packs_root.mkdir(parents=True, exist_ok=True)
 
     print(f"Watching {folder} (Ctrl-C to stop)...", file=out)
+    mode = "detect + analyze + pack" if do_pack else "detect + analyze"
+    print(f"Poll every {args.interval:g}s — {mode}", file=out)
     if move_to is not None:
         print(f"Processed files will move to {move_to}", file=out)
+    if do_pack:
+        print(f"Evidence packs -> {packs_root}", file=out)
     out.flush()
 
     processed: set[Path] = set()
     pending_size: dict[Path, int] = {}
     total = scams = errors = 0
     iterations = 0
+    # Size-stability settle is short even when --interval is long (e.g. hourly).
+    settle = min(2.0, max(0.5, float(args.interval) if args.interval < 2 else 2.0))
     try:
         while True:
             for path in FolderSource(folder).iter_message_paths():
@@ -257,21 +272,41 @@ def run_watch(
                 except OSError:
                     continue
                 if pending_size.get(path) != size:
-                    pending_size[path] = size  # not yet stable; check again next tick
-                    continue
+                    pending_size[path] = size  # not yet stable; recheck after settle
+                    _sleep(settle)
+                    try:
+                        size2 = path.stat().st_size
+                    except OSError:
+                        continue
+                    if size2 != size:
+                        pending_size[path] = size2
+                        continue
+                    size = size2
                 try:
                     parsed = parse_eml_bytes(read_message_file(path))
                     total += 1
                     stamp = time.strftime("%H:%M:%S")
-                    if _report(
+                    hit = _report(
                         parsed,
                         router=router,
                         escalate=args.escalate,
                         show_all=args.all,
                         out=out,
                         prefix=f"[{stamp}] {path.name}",
-                    ):
+                    )
+                    if hit:
                         scams += 1
+                    if vault is not None:
+                        pack = build_pack(
+                            path,
+                            vault=vault,
+                            packs_root=packs_root,
+                            enrich_provenance=True,
+                        )
+                        print(
+                            f"    [pack] {pack.analysis.verdict} -> {pack.directory}",
+                            file=out,
+                        )
                 except Exception as exc:
                     errors += 1
                     stamp = time.strftime("%H:%M:%S")
@@ -359,7 +394,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="after analysis, move the file out of the watch folder "
         f"(default DIR: {DEFAULT_PROCESSED_FOLDER})",
     )
+    watch.add_argument(
+        "--pack",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="after each stable drop: vault + FR/EN evidence pack (default: on)",
+    )
+    watch.add_argument(
+        "--vault",
+        default=str(DEFAULT_VAULT),
+        help=f"evidence vault root when packing (default {DEFAULT_VAULT})",
+    )
+    watch.add_argument(
+        "--packs",
+        default=str(DEFAULT_PACKS),
+        help=f"packs root when packing (default {DEFAULT_PACKS})",
+    )
     watch.set_defaults(func=run_watch)
+
 
     pack = sub.add_parser(
         "pack",

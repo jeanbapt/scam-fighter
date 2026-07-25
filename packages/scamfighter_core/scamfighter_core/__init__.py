@@ -28,6 +28,7 @@ from scamfighter_core.email_ingest import (
     parse_eml_bytes,
 )
 from scamfighter_core.filing import (
+    CONFIRM_PHRASE,
     ApprovalGate,
     PackSnapshot,
     confirm_action,
@@ -97,6 +98,7 @@ from scamfighter_core.vault import (
 )
 
 __all__ = [
+    "CONFIRM_PHRASE",
     "MAX_MESSAGE_BYTES",
     "Analysis",
     "ApprovalDecision",

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from scamfighter_core.dnsbl import DnsblHit, DnsblResult, enrich_dnsbl, query_spamhaus_zen
 from scamfighter_core.filing import (
+    CONFIRM_PHRASE,
     ApprovalGate,
     confirm_action,
     draft_abuse_mailto,
@@ -20,16 +21,18 @@ from scamfighter_core.vault import EvidenceVault
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "i_recorded_you.eml"
 
 
-def _make_pack(tmp_path: Path):
+def _make_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     vault = EvidenceVault(tmp_path / "evidence")
     packs = tmp_path / "packs"
+    monkeypatch.setenv("SCAMFIGHTER_PACKS", str(packs))
+    monkeypatch.delenv("SCAMFIGHTER_PACKS_ALLOW_ABSOLUTE", raising=False)
     eml = tmp_path / "sample.eml"
     eml.write_bytes(FIXTURE.read_bytes())
     return build_pack(eml, vault=vault, packs_root=packs, enrich_provenance=False)
 
 
-def test_load_pack_and_mailto_draft(tmp_path: Path):
-    pack = _make_pack(tmp_path)
+def test_load_pack_and_mailto_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pack = _make_pack(tmp_path, monkeypatch)
     snap = load_pack(pack.directory)
     assert snap.sha256 == pack.sha256
     assert snap.has_message_eml
@@ -41,8 +44,8 @@ def test_load_pack_and_mailto_draft(tmp_path: Path):
     assert b"Content-Disposition: attachment" in raw or b'filename="message.eml"' in raw
 
 
-def test_form_fill_plans(tmp_path: Path):
-    pack = _make_pack(tmp_path)
+def test_form_fill_plans(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pack = _make_pack(tmp_path, monkeypatch)
     snap = load_pack(pack.directory)
     ovh = form_fill_plan("ovh_abuse", snap)
     assert ovh["auto_submit"] is False
@@ -53,24 +56,37 @@ def test_form_fill_plans(tmp_path: Path):
         form_fill_plan("nope", snap)
 
 
-def test_spamhaus_confirm_gate_dry_run(tmp_path: Path):
-    pack = _make_pack(tmp_path)
+def test_spamhaus_confirm_gate_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pack = _make_pack(tmp_path, monkeypatch)
     snap = load_pack(pack.directory)
     req = request_spamhaus_submit(snap, reason="sextortion spam sample")
     token = req["approval_token"]
     with pytest.raises(PermissionError):
         submit_spamhaus_email(token, dry_run=True)
-    confirm_action(token)
+    with pytest.raises(PermissionError):
+        confirm_action(token, confirmation="yes")
+    confirm_action(token, confirmation=CONFIRM_PHRASE)
     result = submit_spamhaus_email(token, dry_run=True)
     assert result["status"] == "dry_run"
     with pytest.raises(KeyError):
         submit_spamhaus_email(token, dry_run=True)  # consumed
 
 
+def test_live_submit_requires_env_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    pack = _make_pack(tmp_path, monkeypatch)
+    snap = load_pack(pack.directory)
+    req = request_spamhaus_submit(snap, reason="live gate test")
+    token = req["approval_token"]
+    confirm_action(token, confirmation=CONFIRM_PHRASE)
+    monkeypatch.delenv("SCAMFIGHTER_ALLOW_LIVE_SUBMIT", raising=False)
+    with pytest.raises(PermissionError, match="SCAMFIGHTER_ALLOW_LIVE_SUBMIT"):
+        submit_spamhaus_email(token, dry_run=False)
+
+
 def test_approval_gate_ttl_and_mismatch():
     gate = ApprovalGate(ttl_seconds=60)
     token = gate.request("submit_spamhaus_email", {"x": 1})
-    gate.confirm(token)
+    gate.confirm(token, confirmation=CONFIRM_PHRASE)
     with pytest.raises(PermissionError):
         gate.consume(token, expected_action="other")
 
@@ -103,10 +119,16 @@ def test_load_pack_rejects_path_escape(tmp_path: Path, monkeypatch: pytest.Monke
     packs = tmp_path / "packs"
     packs.mkdir()
     monkeypatch.setenv("SCAMFIGHTER_PACKS", str(packs))
+    monkeypatch.delenv("SCAMFIGHTER_PACKS_ALLOW_ABSOLUTE", raising=False)
     with pytest.raises(ValueError):
         load_pack("../etc")
     with pytest.raises(ValueError):
         load_pack("foo/../../bar")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "meta.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        load_pack(outside)
 
 
 def test_build_pack_rejects_oversized(tmp_path: Path):
