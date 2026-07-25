@@ -7,6 +7,17 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    # Keep github/codeql-action/* on the same version (init/analyze/upload-sarif
+    # share a config schema; partial bumps fail with "expected 'version' field").
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
+      github-actions:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "github/codeql-action*"
 
   - package-ecosystem: "pip"
     directory: "/"
