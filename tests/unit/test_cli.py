@@ -128,9 +128,7 @@ def test_watch_packs_on_detect(tmp_path: Path):
     out = io.StringIO()
 
     def _pack(path, *, vault, packs_root, enrich_provenance=True):
-        return real_build_pack(
-            path, vault=vault, packs_root=packs_root, enrich_provenance=False
-        )
+        return real_build_pack(path, vault=vault, packs_root=packs_root, enrich_provenance=False)
 
     with patch("scamfighter_app.cli.build_pack", side_effect=_pack):
         rc = run_watch(args, out=out, _sleep=lambda _s: None, _max_iterations=3)

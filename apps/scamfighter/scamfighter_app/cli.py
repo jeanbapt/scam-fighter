@@ -412,7 +412,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     watch.set_defaults(func=run_watch)
 
-
     pack = sub.add_parser(
         "pack",
         help="store .eml in the write-once vault and build a FR/EN complaint pack",
