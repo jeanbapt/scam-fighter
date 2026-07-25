@@ -66,6 +66,8 @@ def test_analyze_sofinco_style_brand_phishing_from_headers():
     assert "cta_off_domain" in a.irregularities
     assert "synthetic_or_infra_message_id" in a.irregularities
     assert "auth_pass_does_not_validate_display_brand" in a.irregularities
+    # Untrusted From: disambiguation must not clear the brand path.
+    assert a.disambiguation == ()
 
 
 def test_analyze_matching_display_brand_is_not_phishing():
@@ -79,6 +81,30 @@ def test_analyze_matching_display_brand_is_not_phishing():
     a = analyze(parse_eml(raw))
     assert a.verdict == "unknown"
     assert "display_name_domain_mismatch" not in a.irregularities
+
+
+def test_github_notification_fp_is_disambiguated():
+    # Real FP: person/Dependabot display on notifications@github.com + CDN links.
+    raw = (
+        "Authentication-Results: mx; spf=pass dkim=pass dmarc=pass\r\n"
+        "Message-ID: <tim@github.com>\r\n"
+        "From: Dependabot <notifications@github.com>\r\n"
+        "To: scam-fighter@noreply.github.com\r\n"
+        "Subject: Re: [jeanbapt/scam-fighter] chore(deps): Bump actions\r\n"
+        "MIME-Version: 1.0\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n\r\n"
+        '<a href="https://github.com/jeanbapt/scam-fighter/pull/9">PR</a> '
+        '<img src="https://avatars.githubusercontent.com/in/29110"/> '
+        '<a href="https://docs.github.com/en/code-security">docs</a>\r\n'
+    )
+    a = analyze(parse_eml(raw))
+    assert "display_name_domain_mismatch" in a.irregularities
+    assert "cta_off_domain" in a.irregularities
+    assert "trusted_from_domain_auth_pass" in a.disambiguation
+    assert "person_display_on_trusted_notifier" in a.disambiguation
+    assert "cta_same_org_family" in a.disambiguation
+    assert a.verdict == "unknown"
+    assert a.is_scam is False
 
 
 def test_summarize_uses_local_router_offline():

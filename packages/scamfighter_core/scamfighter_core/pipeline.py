@@ -7,6 +7,10 @@ Classification is deterministic on purpose (see ``docs/IMPLEMENTATION_PLAN.md``)
   bulk, Message-ID / Return-Path mismatch, off-domain CTA). Auth may *pass*; a
   passing SPF only proves the *sending domain* signed the mail, not that the
   display brand is real.
+* **False-positive disambiguation** — trusted notifiers (GitHub, Google, …) often
+  put a *person* display name on a platform From address and link to sibling
+  CDNs. Those irregularities are recorded, then cleared for scoring when the
+  From domain authenticates and CTAs stay in the org family.
 
 The LLM is optional and only drafts a human-readable summary, gated by the
 egress guard when it runs in the cloud.
@@ -47,6 +51,72 @@ _INFRA_MSGID_MARKERS = (
     "mx.google.com",
 )
 
+# Registrable domains that send authenticated mail with *person* display names
+# (PR authors, Dependabot, "Google", …). Brand-mismatch alone is not phishing.
+_TRUSTED_NOTIFIER_REGISTRABLES = frozenset(
+    {
+        "github.com",
+        "gitlab.com",
+        "bitbucket.org",
+        "google.com",
+        "gmail.com",
+        "microsoft.com",
+        "outlook.com",
+        "apple.com",
+        "icloud.com",
+        "linkedin.com",
+        "slack.com",
+        "stripe.com",
+        "amazon.com",
+        "paypal.com",
+        "dropbox.com",
+        "atlassian.com",
+        "notion.so",
+        "vercel.com",
+        "netlify.com",
+    }
+)
+
+# Sibling CDN / product hosts that share an org with a From domain.
+_ORG_FAMILIES: tuple[frozenset[str], ...] = (
+    frozenset({"github.com", "githubusercontent.com", "githubassets.com", "github.io"}),
+    frozenset(
+        {
+            "google.com",
+            "gmail.com",
+            "googlemail.com",
+            "youtube.com",
+            "ytimg.com",
+            "gstatic.com",
+        }
+    ),
+    frozenset(
+        {
+            "microsoft.com",
+            "outlook.com",
+            "live.com",
+            "office.com",
+            "office365.com",
+            "microsoftonline.com",
+            "msn.com",
+        }
+    ),
+    frozenset({"apple.com", "icloud.com", "me.com", "mzstatic.com", "cdn-apple.com"}),
+    frozenset({"amazon.com", "amazonaws.com", "ssl-images-amazon.com", "media-amazon.com"}),
+    frozenset({"paypal.com", "paypalobjects.com"}),
+    frozenset({"linkedin.com", "licdn.com"}),
+    frozenset({"atlassian.com", "atlassian.net", "bitbucket.org", "jira.com", "trello.com"}),
+)
+
+# Header tells that drive the brand-phishing path (before FP clearance).
+_BRAND_TELLS = frozenset(
+    {
+        "display_name_domain_mismatch",
+        "cta_off_domain",
+        "auth_pass_does_not_validate_display_brand",
+    }
+)
+
 
 @dataclass(frozen=True)
 class Analysis:
@@ -65,6 +135,7 @@ class Analysis:
     public_ips: tuple[str, ...]
     matched_phrases: tuple[str, ...]
     irregularities: tuple[str, ...]
+    disambiguation: tuple[str, ...]
     verdict: str
     confidence: float
 
@@ -116,6 +187,20 @@ def _registrable(host: str) -> str:
     return host.lower()
 
 
+def _org_family(domain: str) -> frozenset[str] | None:
+    reg = _registrable(domain)
+    for family in _ORG_FAMILIES:
+        if reg in family:
+            return family
+    return None
+
+
+def _auth_passes(parsed: ParsedEmail) -> bool:
+    return any(
+        (v or "").lower() == "pass" for v in (parsed.auth.spf, parsed.auth.dkim, parsed.auth.dmarc)
+    )
+
+
 def _identity_haystack(from_addr: str) -> str:
     local, _, domain = from_addr.partition("@")
     return re.sub(r"[^a-z0-9]", "", (local + domain).lower())
@@ -136,20 +221,34 @@ def _display_name_domain_mismatch(display: str, from_addr: str) -> bool:
     return all(t.lower() not in haystack for t in tokens)
 
 
-def _cta_off_domain(urls: tuple[str, ...], from_domain: str) -> bool:
-    if not from_domain or not urls:
-        return False
-    from_reg = _registrable(from_domain)
+def _cta_hosts(urls: tuple[str, ...]) -> tuple[str, ...]:
+    hosts: list[str] = []
     for url in urls:
         try:
             host = (urlparse(url).hostname or "").lower()
         except ValueError:
             continue
-        if not host:
-            continue
-        if _registrable(host) != from_reg:
-            return True
-    return False
+        if host and host not in hosts:
+            hosts.append(host)
+    return tuple(hosts)
+
+
+def _cta_off_domain(urls: tuple[str, ...], from_domain: str) -> bool:
+    if not from_domain or not urls:
+        return False
+    from_reg = _registrable(from_domain)
+    return any(_registrable(host) != from_reg for host in _cta_hosts(urls))
+
+
+def _cta_in_org_family(urls: tuple[str, ...], from_domain: str) -> bool:
+    """True when every CTA host is in From's org family (or exact registrable)."""
+    hosts = _cta_hosts(urls)
+    if not hosts or not from_domain:
+        return False
+    family = _org_family(from_domain)
+    from_reg = _registrable(from_domain)
+    allowed = family if family is not None else frozenset({from_reg})
+    return all(_registrable(h) in allowed for h in hosts)
 
 
 def header_irregularities(parsed: ParsedEmail) -> tuple[str, ...]:
@@ -201,13 +300,74 @@ def header_irregularities(parsed: ParsedEmail) -> tuple[str, ...]:
     return tuple(found)
 
 
+def disambiguate_false_positives(
+    parsed: ParsedEmail,
+    irregularities: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Explain header irregularities that are normal for trusted platforms.
+
+    Returns clearance reason codes. Does **not** clear sextortion (BTC + phrases);
+    only softens brand-phishing scoring.
+    """
+    if not irregularities:
+        return ()
+
+    reasons: list[str] = []
+    from_domain = _addr_domain(parsed.from_addr)
+    from_reg = _registrable(from_domain) if from_domain else ""
+    trusted = from_reg in _TRUSTED_NOTIFIER_REGISTRABLES and _auth_passes(parsed)
+
+    if trusted:
+        reasons.append("trusted_from_domain_auth_pass")
+
+    if (
+        trusted
+        and "display_name_domain_mismatch" in irregularities
+        and not parsed.is_self_addressed
+    ):
+        # GitHub/Dependabot/PR authors: person display on notifications@github.com.
+        reasons.append("person_display_on_trusted_notifier")
+
+    if "cta_off_domain" in irregularities and _cta_in_org_family(
+        parsed.indicators.urls, from_domain
+    ):
+        reasons.append("cta_same_org_family")
+
+    # Authenticated trusted From + sibling CDN links fully explain the brand path.
+    if (
+        trusted
+        and "auth_pass_does_not_validate_display_brand" in irregularities
+        and "person_display_on_trusted_notifier" in reasons
+    ):
+        reasons.append("auth_pass_expected_for_notifier_display")
+
+    return tuple(reasons)
+
+
+def effective_irregularities(
+    irregularities: tuple[str, ...],
+    disambiguation: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Drop header tells that disambiguation has explained away."""
+    cleared: set[str] = set()
+    if "person_display_on_trusted_notifier" in disambiguation:
+        cleared.add("display_name_domain_mismatch")
+    if "auth_pass_expected_for_notifier_display" in disambiguation:
+        cleared.add("auth_pass_does_not_validate_display_brand")
+    if "cta_same_org_family" in disambiguation:
+        cleared.add("cta_off_domain")
+    return tuple(i for i in irregularities if i not in cleared)
+
+
 def analyze(parsed: ParsedEmail) -> Analysis:
     """Score a parsed message deterministically from headers + indicators."""
     body_l = parsed.body.lower()
     matched = tuple(p for p in _SEXTORTION_PHRASES if p in body_l)
     has_btc = bool(parsed.indicators.bitcoin_addresses)
     irregularities = header_irregularities(parsed)
-    irr_n = len(irregularities)
+    disambiguation = disambiguate_false_positives(parsed, irregularities)
+    effective = effective_irregularities(irregularities, disambiguation)
+    irr_n = len(effective)
 
     # Sextortion signals (crypto + phrasing remain decisive for that family).
     sex_signals = 0
@@ -216,12 +376,7 @@ def analyze(parsed: ParsedEmail) -> Analysis:
     sex_signals += 1 if has_btc else 0
     sex_signals += 1 if len(matched) >= 2 else 0
 
-    brand_tells = {
-        "display_name_domain_mismatch",
-        "cta_off_domain",
-        "auth_pass_does_not_validate_display_brand",
-    }
-    has_brand_tell = bool(brand_tells.intersection(irregularities))
+    has_brand_tell = bool(_BRAND_TELLS.intersection(effective))
 
     if has_btc and len(matched) >= 2:
         verdict = "sextortion"
@@ -251,6 +406,7 @@ def analyze(parsed: ParsedEmail) -> Analysis:
         public_ips=parsed.indicators.public_ips,
         matched_phrases=matched,
         irregularities=irregularities,
+        disambiguation=disambiguation,
         verdict=verdict,
         confidence=round(min(1.0, confidence), 2),
     )

@@ -146,6 +146,8 @@ def _format(analysis: Analysis) -> str:
     ]
     if analysis.irregularities:
         lines.append(f"    headers: {', '.join(analysis.irregularities)}")
+    if analysis.disambiguation:
+        lines.append(f"    disambiguated: {', '.join(analysis.disambiguation)}")
     if analysis.bitcoin_addresses:
         lines.append(f"    btc: {', '.join(analysis.bitcoin_addresses)}")
     if analysis.public_ips:

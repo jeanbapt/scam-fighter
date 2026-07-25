@@ -161,6 +161,7 @@ def _complaint_fr(
 | DMARC | {analysis.dmarc} |
 | Auth. globalement en échec | {"oui" if analysis.auth_all_failing else "non"} |
 | Irrégularités d'en-têtes | {", ".join(analysis.irregularities) or "(aucune)"} |
+| Faux positifs écartés | {", ".join(analysis.disambiguation) or "(aucun)"} |
 | Adresse(s) Bitcoin | `{btc}` |
 | IP d'origine (chaîne Received) | `{ips}` |
 | URL mentionnées (défanguées) | {urls} |
@@ -247,6 +248,7 @@ def _complaint_en(
 | DMARC | {analysis.dmarc} |
 | Auth all failing | {"yes" if analysis.auth_all_failing else "no"} |
 | Header irregularities | {", ".join(analysis.irregularities) or "(none)"} |
+| False positives cleared | {", ".join(analysis.disambiguation) or "(none)"} |
 | Bitcoin address(es) | `{btc}` |
 | Origin IP(s) from Received | `{ips}` |
 | URLs mentioned (defanged) | {urls} |
@@ -399,6 +401,7 @@ def build_pack(
             "urls_defanged": [defang(u) for u in analysis.urls],
             "matched_phrases": list(analysis.matched_phrases),
             "irregularities": list(analysis.irregularities),
+            "disambiguation": list(analysis.disambiguation),
         },
         "from_masked": _mask_email(analysis.from_addr),
         "generated_at": datetime.now(UTC).isoformat(),

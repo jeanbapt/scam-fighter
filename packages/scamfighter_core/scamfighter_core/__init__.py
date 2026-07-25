@@ -70,6 +70,9 @@ from scamfighter_core.pack import EvidencePack, build_pack
 from scamfighter_core.pipeline import (
     Analysis,
     analyze,
+    disambiguate_false_positives,
+    effective_irregularities,
+    header_irregularities,
     summarize,
 )
 from scamfighter_core.provenance import (
@@ -150,13 +153,16 @@ __all__ = [
     "confirm_action",
     "defang",
     "default_mac_mail_root",
+    "disambiguate_false_positives",
     "draft_abuse_mailto",
+    "effective_irregularities",
     "egress_audit_record",
     "enrich_dnsbl",
     "enrich_provenance",
     "form_fill_plan",
     "format_provenance_markdown",
     "guard_cloud_egress",
+    "header_irregularities",
     "html_to_text",
     "httpx_transport",
     "is_active",
