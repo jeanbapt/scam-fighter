@@ -84,7 +84,9 @@ def _http_json(url: str, *, timeout: float = 15.0) -> dict[str, Any]:
         },
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected
+    # HTTPS-only; URL host is fixed to public RDAP/Blockstream endpoints.
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         data = json.loads(resp.read().decode("utf-8"))
     if not isinstance(data, dict):
         raise ValueError("expected JSON object")
