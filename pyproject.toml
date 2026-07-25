@@ -21,6 +21,8 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 package = false
+# Wait before adopting brand-new PyPI releases (supply-chain cooldown).
+exclude-newer = "7 days"
 
 [tool.ruff]
 line-length = 100
