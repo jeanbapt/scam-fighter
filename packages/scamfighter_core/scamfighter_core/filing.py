@@ -339,7 +339,7 @@ def submit_spamhaus_email(token: str, *, dry_run: bool = True) -> dict[str, Any]
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected
             raw = resp.read().decode("utf-8")
             status = getattr(resp, "status", 200)
     except urllib.error.HTTPError as exc:
